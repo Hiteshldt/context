@@ -35,6 +35,7 @@ struct ContextApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @StateObject private var store: Store
     @StateObject private var backup: BackupManager
+    @ObservedObject private var lock = AppLock.shared
 
     init() {
         let store = Store()
@@ -64,23 +65,32 @@ struct ContextApp: App {
         .defaultSize(width: 1380, height: 880)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("New Note") { post(.contextNewNote) }.keyboardShortcut("n")
-                Button("New Task…") { post(.contextNewTask) }.keyboardShortcut("t")
-                Button("New Project…") { post(.contextNewProject) }.keyboardShortcut("n", modifiers: [.command, .shift])
-                Button("New Client…") { post(.contextNewClient) }
+                Group {
+                    Button("New Note") { post(.contextNewNote) }.keyboardShortcut("n")
+                    Button("New Task…") { post(.contextNewTask) }.keyboardShortcut("t")
+                    Button("New Project…") { post(.contextNewProject) }.keyboardShortcut("n", modifiers: [.command, .shift])
+                    Button("New Client…") { post(.contextNewClient) }
+                }.disabled(lock.isLocked)
+            }
+            CommandGroup(after: .appSettings) {
+                Button("Lock Context") { lock.lock() }.keyboardShortcut("l", modifiers: [.command, .control]).disabled(!lock.enabled || lock.isLocked)
             }
             CommandMenu("Go") {
-                Button("Search or Jump To…") { post(.contextShowLauncher) }.keyboardShortcut("k")
-                Button("Home") { post(.contextShowHome) }.keyboardShortcut("1")
+                Group {
+                    Button("Search or Jump To…") { post(.contextShowLauncher) }.keyboardShortcut("k")
+                    Button("Home") { post(.contextShowHome) }.keyboardShortcut("1")
+                }.disabled(lock.isLocked)
             }
             CommandMenu("Backup") {
                 Button("Back Up Now") { if backup.isConfigured { backup.backupNow() } else { post(.contextShowBackup) } }.keyboardShortcut("b", modifiers: [.command, .shift])
-                Button("Backup & Restore…") { post(.contextShowBackup) }
-                Divider()
-                Button("Export a Backup File…") { store.exportBackup() }.keyboardShortcut("e", modifiers: [.command, .shift])
-                Button("Import a Backup File…") { store.restoreBackup() }
-                Divider()
-                Button("Show Local Data in Finder") { NSWorkspace.shared.open(store.disk.directory) }
+                Group {
+                    Button("Backup & Restore…") { post(.contextShowBackup) }
+                    Divider()
+                    Button("Export a Backup File…") { store.exportBackup() }.keyboardShortcut("e", modifiers: [.command, .shift])
+                    Button("Import a Backup File…") { store.restoreBackup() }
+                    Divider()
+                    Button("Show Local Data in Finder") { NSWorkspace.shared.open(store.disk.directory) }
+                }.disabled(lock.isLocked)
             }
         }
         MenuBarExtra {

@@ -578,10 +578,12 @@ struct DiagramNode: Identifiable, Codable, Equatable {
     var kind: NodeKind = .step
     /// Optional tint override (a `Theme.color` name); empty uses the kind's default.
     var color = ""
+    /// Free text about this box, shown when it's selected.
+    var notes = ""
 }
 
 extension DiagramNode {
-    enum CodingKeys: String, CodingKey { case id, label, entryID, x, y, kind, color }
+    enum CodingKeys: String, CodingKey { case id, label, entryID, x, y, kind, color, notes }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
@@ -591,7 +593,21 @@ extension DiagramNode {
         y = try c.decode(Double.self, forKey: .y)
         kind = (try? c.decode(NodeKind.self, forKey: .kind)) ?? .step
         color = try c.value(.color, "")
+        notes = try c.value(.notes, "")
     }
+}
+
+/// A labelled frame on a map. Boxes whose centre sits inside it belong to it and move with it.
+struct DiagramGroup: Identifiable, Codable, Equatable {
+    var id = UUID()
+    var title = ""
+    /// A `Theme.color` name.
+    var color = "slate"
+    /// Top-left corner and size, in canvas points.
+    var x: Double
+    var y: Double
+    var width: Double
+    var height: Double
 }
 
 struct DiagramEdge: Identifiable, Codable, Equatable {
@@ -620,7 +636,22 @@ struct Diagram: Identifiable, Codable, Equatable {
     var title = "Untitled diagram"
     var nodes: [DiagramNode] = []
     var edges: [DiagramEdge] = []
+    var groups: [DiagramGroup] = []
     var updatedAt = Date()
+}
+
+extension Diagram {
+    enum CodingKeys: String, CodingKey { case id, projectID, title, nodes, edges, groups, updatedAt }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        projectID = try c.decode(UUID.self, forKey: .projectID)
+        title = try c.value(.title, "Untitled diagram")
+        nodes = try c.value(.nodes, [])
+        edges = try c.value(.edges, [])
+        groups = try c.value(.groups, [])
+        updatedAt = try c.value(.updatedAt, Date())
+    }
 }
 
 struct ImageVariant: Identifiable, Codable, Equatable {

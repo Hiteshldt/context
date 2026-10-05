@@ -17,6 +17,47 @@ enum DiagramLayout {
 
     static func snap(_ value: Double) -> Double { (value / grid).rounded() * grid }
 
+    // MARK: Groups
+
+    static let minimumGroupSize = CGSize(width: 240, height: 140)
+    /// The title strip along the top of a group, which is what you drag.
+    static let groupHeader: Double = 34
+
+    static func rect(of group: DiagramGroup, offset: CGSize = .zero, grow: CGSize = .zero) -> CGRect {
+        CGRect(x: group.x + offset.width, y: group.y + offset.height,
+               width: max(minimumGroupSize.width, group.width + grow.width), height: max(minimumGroupSize.height, group.height + grow.height))
+    }
+
+    /// The boxes inside a group: those whose centre lies within its frame.
+    static func members(of group: DiagramGroup, in diagram: Diagram) -> [UUID] {
+        let frame = rect(of: group)
+        return diagram.nodes.filter { frame.contains(CGPoint(x: $0.x, y: $0.y)) }.map(\.id)
+    }
+
+    /// A group framing the given boxes with some breathing room, or a default-sized group at `point` when there are none.
+    static func group(around nodes: [DiagramNode], or point: CGPoint, title: String = "", color: String = "slate") -> DiagramGroup {
+        guard !nodes.isEmpty else {
+            let size = CGSize(width: 420, height: 260)
+            return DiagramGroup(title: title, color: color, x: snap(point.x - size.width / 2), y: snap(point.y - size.height / 2),
+                                width: size.width, height: size.height)
+        }
+        let bounds = nodes.map { rect(of: $0) }.reduce(CGRect.null) { $0.union($1) }
+        let pad = 30.0
+        let width = max(minimumGroupSize.width, bounds.width + pad * 2), height = max(minimumGroupSize.height, bounds.height + pad * 2 + groupHeader)
+        return DiagramGroup(title: title, color: color, x: snap(bounds.midX - width / 2), y: snap(bounds.minY - pad - groupHeader),
+                            width: snap(width), height: snap(height))
+    }
+
+    /// Keeps a group's frame on the canvas.
+    static func clamp(_ group: DiagramGroup) -> DiagramGroup {
+        var result = group
+        result.width = min(max(minimumGroupSize.width, snap(group.width)), canvas.width - 20)
+        result.height = min(max(minimumGroupSize.height, snap(group.height)), canvas.height - 20)
+        result.x = snap(min(max(10, group.x), canvas.width - result.width - 10))
+        result.y = snap(min(max(10, group.y), canvas.height - result.height - 10))
+        return result
+    }
+
     static func clamp(_ point: CGPoint) -> CGPoint {
         CGPoint(x: min(max(110, point.x), canvas.width - 110), y: min(max(50, point.y), canvas.height - 70))
     }

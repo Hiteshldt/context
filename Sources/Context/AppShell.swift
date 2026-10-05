@@ -18,8 +18,11 @@ enum MainWindow {
 struct RootView: View {
     @Environment(\.openWindow) var openWindow
     @AppStorage("globalShortcut") private var globalShortcut = true
+    @ObservedObject private var lock = AppLock.shared
     var body: some View {
-        ContentView()
+        Group {
+            if lock.isLocked { LockScreen() } else { ContentView() }
+        }
             .onAppear { MainWindow.opener = { openWindow(id: "main") } }
             .onChange(of: globalShortcut) { _, on in GlobalHotKey.shared.setEnabled(on) }
     }
@@ -28,9 +31,24 @@ struct RootView: View {
 /// The menu bar launcher: find and open any link without switching to the main window.
 struct MenuBarPanel: View {
     @EnvironmentObject var store: Store
+    @ObservedObject private var lock = AppLock.shared
     var body: some View {
+        if lock.isLocked { locked } else { panel }
+    }
+
+    var locked: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "lock.fill").font(.system(size: 22)).foregroundStyle(Theme.ink3)
+            Text("Context is locked").font(T.bodyMedium).foregroundStyle(Theme.ink)
+            Button { Task { await lock.unlock() } } label: { Label("Unlock", systemImage: lock.method == "Touch ID" ? "touchid" : "lock.open.fill") }
+                .buttonStyle(.primaryCompact).disabled(lock.authenticating)
+        }
+        .padding(24).frame(width: 400).background(Theme.card)
+    }
+
+    var panel: some View {
         let due = Buckets.needsAttention(store.workspace.tasks).count
-        VStack(spacing: 0) {
+        return VStack(spacing: 0) {
             LauncherView(compact: true, onActivate: { target, alternate in
                 if case .entry(let id) = target, let entry = store.entry(id), webURL(entry.url) != nil, !alternate {
                     store.open(entry)

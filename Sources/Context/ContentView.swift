@@ -198,6 +198,7 @@ struct SidebarView: View {
     let openLauncher: () -> Void
     @ObservedObject private var icons = SiteIconStore.shared
     @AppStorage("globalShortcut") private var globalShortcut = true
+    @ObservedObject private var lock = AppLock.shared
 
     var clients: [Client] { store.workspace.clients.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending } }
     var attention: Int { Buckets.needsAttention(store.workspace.tasks, now: store.clock).count }
@@ -305,6 +306,14 @@ struct SidebarView: View {
                 Divider()
                 Toggle("Download Website Icons", isOn: Binding(get: { icons.enabled }, set: { icons.enabled = $0 }))
                 Toggle("Global Shortcut ⌃⌥Space", isOn: $globalShortcut)
+                Divider()
+                Toggle("Require \(lock.method) to Open", isOn: Binding(get: { lock.enabled }, set: { on in Task { await lock.setEnabled(on) } }))
+                if lock.enabled {
+                    Picker("Lock When Away", selection: $lock.autoLock) {
+                        ForEach(AppLock.AutoLock.allCases) { Text($0.name).tag($0) }
+                    }
+                    Button("Lock Now") { lock.lock() }
+                }
                 if AppLinks.repository != nil || AppLinks.donate != nil { Divider() }
                 if let url = AppLinks.repository { Button { NSWorkspace.shared.open(url) } label: { Label("Context on GitHub", systemImage: "chevron.left.forwardslash.chevron.right") } }
                 if let url = AppLinks.donate { Button { NSWorkspace.shared.open(url) } label: { Label("Support Context on Ko-fi", systemImage: "heart.fill") } }

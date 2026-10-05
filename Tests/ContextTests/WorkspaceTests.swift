@@ -215,6 +215,34 @@ final class WorkspaceTests {
         XCTAssertEqual(node.color, "")
         let edge = try JSONDecoder().decode(DiagramEdge.self, from: Data(#"{"id":"\#(UUID())","from":"\#(UUID())","to":"\#(UUID())"}"#.utf8))
         XCTAssertFalse(edge.dashed)
+        XCTAssertEqual(node.notes, "")
+        // Maps saved before groups existed still load.
+        let map = try JSONDecoder().decode(Diagram.self, from: Data(#"{"id":"\#(UUID())","projectID":"\#(UUID())","title":"Old","nodes":[],"edges":[],"updatedAt":0}"#.utf8))
+        XCTAssertEqual(map.title, "Old")
+        XCTAssertTrue(map.groups.isEmpty)
+    }
+
+    func testMapGroups() throws {
+        var map = Diagram(projectID: UUID())
+        let api = DiagramNode(label: "API", x: 400, y: 300), db = DiagramNode(label: "DB", x: 400, y: 420), site = DiagramNode(label: "Site", x: 1200, y: 300)
+        map.nodes = [api, db, site]
+        // A group fitted around two boxes contains exactly those boxes, with room for its name tag above them.
+        let group = DiagramLayout.group(around: [api, db], or: .zero, title: "Backend")
+        XCTAssertEqual(Set(DiagramLayout.members(of: group, in: map)), [api.id, db.id])
+        XCTAssertTrue(group.y + DiagramLayout.groupHeader <= DiagramLayout.rect(of: api).minY)
+        XCTAssertEqual(group.title, "Backend")
+        // Groups never shrink below a usable size or leave the canvas.
+        let tiny = DiagramLayout.clamp(DiagramGroup(x: -500, y: 99_999, width: 5, height: 5))
+        XCTAssertTrue(tiny.width >= DiagramLayout.minimumGroupSize.width)
+        XCTAssertTrue(tiny.x >= 0)
+        XCTAssertTrue(tiny.y + tiny.height <= DiagramLayout.canvas.height)
+        // Groups and box notes survive a save and reload.
+        var notedMap = map
+        notedMap.nodes[0].notes = "Owned by Riya"
+        notedMap.groups = [group]
+        let decoded = try JSONDecoder().decode(Diagram.self, from: try JSONEncoder().encode(notedMap))
+        XCTAssertEqual(decoded.groups, [group])
+        XCTAssertEqual(decoded.nodes[0].notes, "Owned by Riya")
     }
 
     func testMapTidyAndBuildFromLinks() {
@@ -540,6 +568,8 @@ struct TestRunner {
         print("PASS testMarkdownEditingHelpers")
         try tests.testMapNodesDecodeWithoutNewFields()
         print("PASS testMapNodesDecodeWithoutNewFields")
+        try tests.testMapGroups()
+        print("PASS testMapGroups")
         tests.testMapTidyAndBuildFromLinks()
         print("PASS testMapTidyAndBuildFromLinks")
         tests.testLauncherRanking()
@@ -586,6 +616,6 @@ struct TestRunner {
         print("PASS testFolderListingIsBoundedAndPages")
         try tests.testMovedFolderResolvesAndMissingFolderReportsUnavailable()
         print("PASS testMovedFolderResolvesAndMissingFolderReportsUnavailable")
-        print("34 tests passed; \(assertionCount) assertions")
+        print("35 tests passed; \(assertionCount) assertions")
     }
 }

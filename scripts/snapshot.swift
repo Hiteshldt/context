@@ -132,11 +132,13 @@ func seed(_ store: Store, folder: URL) -> (ayuvam: Project, northwind: Client, s
     let n2 = DiagramNode(label: "", entryID: service.id, x: 480, y: 140)
     let n3 = DiagramNode(label: "Customers", x: 760, y: 140, kind: .person)
     let n4 = DiagramNode(label: "Old CDN", entryID: UUID(), x: 480, y: 320)
-    let n5 = DiagramNode(label: "Orders database", x: 760, y: 320, kind: .database)
+    var n5 = DiagramNode(label: "Orders database", x: 760, y: 320, kind: .database)
+    n5.notes = "Neon Postgres in ap-south-1. Nightly backups; the staging branch resets every Monday. Ask Riya before changing the schema."
     let n6 = DiagramNode(label: "Ask Riya about the CDN contract before removing it", x: 200, y: 330, kind: .note)
     store.upsert(Diagram(projectID: ayuvam.id, title: "Deployment flow", nodes: [n1, n2, n3, n4, n5, n6],
                          edges: [DiagramEdge(from: n1.id, to: n2.id, label: "deploys to"), DiagramEdge(from: n2.id, to: n3.id, label: "serves"), DiagramEdge(from: n2.id, to: n4.id, dashed: true),
-                                 DiagramEdge(from: n2.id, to: n5.id, label: "reads & writes")]), in: \.diagrams)
+                                 DiagramEdge(from: n2.id, to: n5.id, label: "reads & writes")],
+                         groups: [DiagramLayout.group(around: [n4, n5], or: .zero, title: "Data & delivery", color: "teal")]), in: \.diagrams)
     return (store.project(ayuvam.id)!, client, service, overdue)
 }
 
@@ -170,6 +172,16 @@ MainActor.assumeIsolated {
     store.lastSection[id] = .links; page(.project(id), "12-links")
     store.lastSection[id] = .map; page(.project(id), "13-map")
     page(.project(id), "13-map-dark", dark: true)
+    if let map = store.workspace.diagrams.first(where: { $0.title == "Deployment flow" }) {
+        let selected = map.nodes.first { $0.label == "Orders database" }?.id
+        snap(DiagramEditor(diagram: map, others: [map], select: { _ in }, create: { _ in }, initialSelection: selected)
+                .environmentObject(store).environment(\.pageTint, Theme.color("sage")),
+             size: CGSize(width: 1300, height: 820), to: "\(out)/13-map-selected.png")
+        let vercel = map.nodes.first { $0.entryID.flatMap { store.entry($0) }?.title == "Vercel" }?.id
+        snap(DiagramEditor(diagram: map, others: [map], select: { _ in }, create: { _ in }, initialSelection: vercel)
+                .environmentObject(store).environment(\.pageTint, Theme.color("sage")),
+             size: CGSize(width: 1300, height: 820), to: "\(out)/13-map-linked.png")
+    }
     store.lastSection[id] = .notes
     store.selectedNote[id] = store.workspace.entries.first { $0.title == "Launch plan" }?.id
     page(.project(id), "14-notes")

@@ -39,13 +39,14 @@ Context remembers that for you. Each project gets one page with its links, notes
   | Notes | Markdown notes and reusable prompts with tables, checklists, code blocks with Copy, and autosave. |
 
 - **Passwords go in the macOS Keychain**, not in Context's data. Revealing one needs Touch ID, and a copied password clears from the clipboard after 45 seconds.
+- **Optional app lock.** Require Touch ID or your Mac password to open Context, with auto-lock when you step away (⚙ → Require Touch ID to Open).
 - **Backup to iCloud Drive, Google Drive, Dropbox, or OneDrive** through their Mac apps. Context writes a dated copy after each change and keeps 30 days.
 - **Clients**: group several projects under one client and see all their pending work together.
 - **Light and dark mode**, keyboard-first, with zero third-party dependencies.
 
 <table>
 <tr><td><img src="docs/screenshots/10-overview.png" alt="Project overview"></td><td><img src="docs/screenshots/12-links.png" alt="Links"></td></tr>
-<tr><td><img src="docs/screenshots/13-map.png" alt="Map"></td><td><img src="docs/screenshots/14-notes.png" alt="Notes"></td></tr>
+<tr><td><img src="docs/screenshots/13-map-linked.png" alt="Map with a box selected, showing its details and notes"></td><td><img src="docs/screenshots/14-notes.png" alt="Notes"></td></tr>
 <tr><td><img src="docs/screenshots/02-launcher.png" alt="⌘K launcher"></td><td><img src="docs/screenshots/01-home-dark.png" alt="Dark mode"></td></tr>
 </table>
 
@@ -71,6 +72,8 @@ zsh scripts/build-app.sh --install   # builds, copies to /Applications, and open
 
 - **Start a map:** "Build from my links" lays out the project for you, or you can start blank.
 - **Box types:** Person, App, API, Database, Storage, Cloud, Email, Payment, Step, and sticky notes. A box linked to a saved link shows that link's logo and follows its renames. If the link is deleted, the box is flagged.
+- **Details on one click:** click a box to see its notes, URL, account, environment, and connections. Plain boxes have their own notes; boxes with notes show a small ≡ marker, and hovering previews them.
+- **Groups:** Add → Group draws a labelled frame. Drag boxes in, drag the name tag to move the group with everything inside, and drag the corner to resize. Right-click a box → Put in a New Group to frame it.
 - **Connect boxes:** drag a box's ● handle onto another box. Click a connection to label it, dash it, reverse it, or delete it.
 - **Edit:** double-click empty space to add a box, double-click a box to rename it, and press **Tidy up** to arrange everything into columns.
 
@@ -89,6 +92,7 @@ zsh scripts/build-app.sh --install   # builds, copies to /Applications, and open
 | ⌘F | Find inside a note while editing |
 | ⇧⌘B | Back up now |
 | ⇧⌘E | Export a backup file |
+| ⌃⌘L | Lock Context (when the app lock is on) |
 
 ## Privacy and your data
 
@@ -102,7 +106,7 @@ Context has no telemetry, no analytics, and no sync service of its own. Its only
 ~/Library/Application Support/Context/backup-settings.json     where backups go
 ```
 
-These files are readable only by your Mac account but are not encrypted, so keep passwords in a link's Keychain credentials rather than in notes.
+These files are readable only by your Mac account but are not encrypted, so keep passwords in a link's Keychain credentials rather than in notes. The optional app lock keeps Context's windows, launcher, and menu bar panel closed until you unlock; it does not encrypt the files on disk.
 
 Backups include projects, links, notes, prompts, tasks, posts, and maps. They don't include the files in connected folders, which stay where they are, or Keychain passwords. Restoring always asks first and keeps a copy of your current data.
 
