@@ -57,7 +57,7 @@ Requires macOS 14 Sonoma or later. The download is built for Apple silicon; on a
 You need Apple's Swift command-line tools (`xcode-select --install`).
 
 ```sh
-git clone https://github.com/<your-github-username>/context.git
+git clone https://github.com/Hiteshldt/context.git
 cd context
 zsh scripts/build-app.sh --install   # builds, copies to /Applications, and opens it
 ```
@@ -115,7 +115,7 @@ The code is plain SwiftUI and AppKit in `Sources/Context`. The original product 
 
 ## Support
 
-Context is free and always will be. If it saves you time, you can [buy me a coffee](<your-donation-link>) ☕ or star the repo. Both help.
+Context is free and always will be. If it saves you time, star the repo ⭐ or tell a friend. Both help.
 
 ## License
 

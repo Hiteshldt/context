@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Project links shown in the ⚙ menu. Each item is hidden while its URL is nil.
 enum AppLinks {
-    static let repository: URL? = nil   // e.g. URL(string: "https://github.com/<you>/context")
+    static let repository = URL(string: "https://github.com/Hiteshldt/context")
     static let donate: URL? = nil       // e.g. URL(string: "https://buymeacoffee.com/<you>")
 }
 
