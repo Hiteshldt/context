@@ -183,6 +183,7 @@ struct ContentView: View {
         case .task(let task): TaskEditor(task: task)
         case .content(let item): ContentItemEditor(item: item)
         case .quickLook(let url): QuickLookSheet(url: url)
+        case .markdown(let url): MarkdownReaderSheet(url: url)
         case .backup: BackupView()
         }
     }

@@ -35,7 +35,7 @@ Context remembers that for you. Each project gets one page with its links, notes
   | Tasks | To-dos with due dates, repeats, reminders, and snooze, plus social posts ticked off per platform. |
   | Links | Services, social accounts, repos, websites, docs, and AI chats, with their real logos (100+ brands). |
   | Map | A diagram of how the project's people, apps, and services connect. It can be built from your links in one click. |
-  | Files | Your existing folders, browsed in place with previews. Nothing is copied, moved, or deleted. |
+  | Files | Your existing folders, browsed in place with previews. Markdown files (READMEs, docs, plans) open right inside Context as formatted documents. Nothing is copied, moved, edited, or deleted. |
   | Notes | Markdown notes and reusable prompts with tables, checklists, code blocks with Copy, and autosave. |
 
 - **Passwords go in the macOS Keychain**, not in Context's data. Revealing one needs Touch ID, and a copied password clears from the clipboard after 45 seconds.

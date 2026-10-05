@@ -222,6 +222,23 @@ final class WorkspaceTests {
         XCTAssertTrue(map.groups.isEmpty)
     }
 
+    func testMarkdownFilesReadInPlace() throws {
+        XCTAssertTrue(MarkdownFile.matches(URL(fileURLWithPath: "/x/README.md")))
+        XCTAssertTrue(MarkdownFile.matches(URL(fileURLWithPath: "/x/Notes.MARKDOWN")))
+        XCTAssertFalse(MarkdownFile.matches(URL(fileURLWithPath: "/x/notes.txt")))
+        XCTAssertEqual(MarkdownFile.withoutFrontMatter("---\ntitle: Hi\n---\n# Heading\nBody"), "# Heading\nBody")
+        XCTAssertEqual(MarkdownFile.withoutFrontMatter("# No front matter\n---\nrule"), "# No front matter\n---\nrule")
+        let folder = try temporaryDirectory()
+        let file = folder.appendingPathComponent("plan.md")
+        try Data("# Plan\n- [ ] Ship".utf8).write(to: file)
+        let before = try Data(contentsOf: file)
+        XCTAssertEqual(try MarkdownFile.load(file), "# Plan\n- [ ] Ship")
+        XCTAssertEqual(try Data(contentsOf: file), before)   // Reading never changes the original.
+        let big = folder.appendingPathComponent("huge.md")
+        try Data(repeating: 65, count: MarkdownFile.sizeLimit + 1).write(to: big)
+        XCTAssertThrowsError(try MarkdownFile.load(big))
+    }
+
     func testMapGroups() throws {
         var map = Diagram(projectID: UUID())
         let api = DiagramNode(label: "API", x: 400, y: 300), db = DiagramNode(label: "DB", x: 400, y: 420), site = DiagramNode(label: "Site", x: 1200, y: 300)
@@ -570,6 +587,8 @@ struct TestRunner {
         print("PASS testMapNodesDecodeWithoutNewFields")
         try tests.testMapGroups()
         print("PASS testMapGroups")
+        try tests.testMarkdownFilesReadInPlace()
+        print("PASS testMarkdownFilesReadInPlace")
         tests.testMapTidyAndBuildFromLinks()
         print("PASS testMapTidyAndBuildFromLinks")
         tests.testLauncherRanking()
@@ -616,6 +635,6 @@ struct TestRunner {
         print("PASS testFolderListingIsBoundedAndPages")
         try tests.testMovedFolderResolvesAndMissingFolderReportsUnavailable()
         print("PASS testMovedFolderResolvesAndMissingFolderReportsUnavailable")
-        print("35 tests passed; \(assertionCount) assertions")
+        print("36 tests passed; \(assertionCount) assertions")
     }
 }

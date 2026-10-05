@@ -36,6 +36,75 @@ struct QuickLookSheet: View {
     }
 }
 
+/// A Markdown file rendered as a document. Read only: the original file is never changed.
+struct MarkdownFileView: View {
+    let url: URL
+    var baseSize: CGFloat = 15
+    var padding: CGFloat = 24
+    @State private var text: String?
+    @State private var error: String?
+
+    var body: some View {
+        Group {
+            if let text {
+                ScrollView {
+                    Group {
+                        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text("This file is empty.").font(T.body).foregroundStyle(Theme.ink3)
+                        } else {
+                            MarkdownDocumentView(source: text, baseSize: baseSize).textSelection(.enabled)
+                        }
+                    }
+                    .frame(maxWidth: 760, alignment: .leading)
+                    .padding(padding)
+                    .frame(maxWidth: .infinity, alignment: .top)
+                }
+            } else if let error {
+                VStack(spacing: 10) {
+                    Image(systemName: "doc.text").font(.system(size: 26)).foregroundStyle(Theme.ink3)
+                    Text(error).font(T.small).foregroundStyle(Theme.ink2).multilineTextAlignment(.center)
+                    Button("Open in Its App") { NSWorkspace.shared.open(url) }.buttonStyle(.softCompact)
+                }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ProgressView().controlSize(.small).frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .task(id: url) {
+            text = nil; error = nil
+            let url = url
+            let result = await Task.detached(priority: .userInitiated) { Result { try MarkdownFile.load(url) } }.value
+            switch result {
+            case .success(let loaded): text = loaded
+            case .failure(let failure): error = failure.localizedDescription
+            }
+        }
+    }
+}
+
+/// A full-size reader for a Markdown file from a connected folder.
+struct MarkdownReaderSheet: View {
+    @Environment(\.dismiss) var dismiss
+    let url: URL
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "doc.richtext").font(.system(size: 15, weight: .medium)).foregroundStyle(Theme.ink2)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(url.lastPathComponent).font(T.h3).lineLimit(1)
+                    Text(url.deletingLastPathComponent().path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                        .font(T.caption).foregroundStyle(Theme.ink3).lineLimit(1).truncationMode(.head)
+                }
+                Spacer()
+                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }.buttonStyle(.softCompact)
+                Button("Open in Its App") { NSWorkspace.shared.open(url) }.buttonStyle(.softCompact)
+                Button("Done") { dismiss() }.buttonStyle(.primaryCompact).keyboardShortcut(.cancelAction)
+            }.padding(14)
+            Rectangle().fill(Theme.border).frame(height: 1)
+            MarkdownFileView(url: url, baseSize: 15, padding: 36).background(Theme.background)
+        }.frame(minWidth: 760, idealWidth: 920, minHeight: 560, idealHeight: 760)
+    }
+}
+
 /// A file's Quick Look thumbnail (works for images, PDFs, and most design files), falling back to its icon.
 struct FileThumbnail: View {
     let url: URL
@@ -146,6 +215,7 @@ struct FilesSection: View {
 struct FolderPane: View {
     @EnvironmentObject var store: Store
     @Environment(\.pageTint) var tint
+    @Environment(\.present) var present
     let folder: FolderConnection
     @State private var path: [URL] = []
     @State private var items: [FileItem] = []
@@ -188,9 +258,18 @@ struct FolderPane: View {
                             Spacer()
                             IconButton(icon: "xmark", help: "Close preview") { self.preview = nil }
                         }.padding(.horizontal, 14).padding(.vertical, 8)
-                        QuickLookSurface(url: preview)
+                        if MarkdownFile.matches(preview) {
+                            MarkdownFileView(url: preview, baseSize: 13, padding: 16).background(Theme.background)
+                        } else {
+                            QuickLookSurface(url: preview)
+                        }
                         HStack {
-                            Button("Open") { NSWorkspace.shared.open(preview) }.buttonStyle(.primaryCompact)
+                            if MarkdownFile.matches(preview) {
+                                Button("Read") { present(.markdown(preview)) }.buttonStyle(.primaryCompact)
+                                Button("Open in Its App") { NSWorkspace.shared.open(preview) }.buttonStyle(.softCompact)
+                            } else {
+                                Button("Open") { NSWorkspace.shared.open(preview) }.buttonStyle(.primaryCompact)
+                            }
                             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([preview]) }.buttonStyle(.softCompact)
                             Spacer()
                         }.padding(12)
@@ -203,7 +282,7 @@ struct FolderPane: View {
                 Text(truncated ? "Showing the first \(items.count) items" : "\(items.count) items")
                 if truncated { Button("Load more") { limit += FolderListing.pageSize; Task { await load() } }.buttonStyle(.softCompact) }
                 Spacer()
-                Text("Original files · read only · double-click opens in its app").foregroundStyle(Theme.ink3)
+                Text("Original files · read only · double-click opens in its app; Markdown opens here").foregroundStyle(Theme.ink3)
             }.font(T.caption).foregroundStyle(Theme.ink2).padding(.horizontal, 40).padding(.vertical, 8)
         }
         .task {
@@ -297,8 +376,10 @@ struct FolderPane: View {
     }
 }
 
-/// Click a folder to enter it or a file to preview it; double-click a file to open it in its app.
+/// Click a folder to enter it or a file to preview it; double-click a file to open it in its app,
+/// except Markdown, which opens in Context's reader.
 struct FileInteraction: ViewModifier {
+    @Environment(\.present) var present
     let item: FileItem
     @Binding var path: [URL]
     @Binding var preview: URL?
@@ -308,10 +389,19 @@ struct FileInteraction: ViewModifier {
             .background(hovering ? Theme.hover : .clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .contentShape(Rectangle())
             .onHover { hovering = $0 }
-            .onTapGesture(count: 2) { if item.isDirectory { path.append(item.url) } else { NSWorkspace.shared.open(item.url) } }
+            .onTapGesture(count: 2) {
+                if item.isDirectory { path.append(item.url) }
+                else if MarkdownFile.matches(item.url) { present(.markdown(item.url)) }
+                else { NSWorkspace.shared.open(item.url) }
+            }
             .onTapGesture { if item.isDirectory { path.append(item.url) } else { preview = item.url } }
             .contextMenu {
-                Button("Open") { NSWorkspace.shared.open(item.url) }
+                if !item.isDirectory && MarkdownFile.matches(item.url) {
+                    Button("Read in Context") { present(.markdown(item.url)) }
+                    Button("Open in Its App") { NSWorkspace.shared.open(item.url) }
+                } else {
+                    Button("Open") { NSWorkspace.shared.open(item.url) }
+                }
                 Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }
                 Button("Copy Path") { copyToClipboard(item.url.path) }
             }

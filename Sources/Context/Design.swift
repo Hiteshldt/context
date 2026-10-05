@@ -85,7 +85,7 @@ enum Route: Hashable { case home, tasks, client(UUID), project(UUID) }
 
 enum SheetRoute: Identifiable {
     case project(Project), client(Client), entry(Entry), task(WorkTask), content(ContentItem)
-    case quickLook(URL), backup
+    case quickLook(URL), markdown(URL), backup
     var id: String {
         switch self {
         case .project(let p): return "project-\(p.id)"
@@ -94,6 +94,7 @@ enum SheetRoute: Identifiable {
         case .task(let t): return "task-\(t.id)"
         case .content(let c): return "content-\(c.id)"
         case .quickLook(let url): return "ql-\(url.path)"
+        case .markdown(let url): return "md-\(url.path)"
         case .backup: return "backup"
         }
     }

@@ -63,3 +63,38 @@ func resolveFolder(_ folder: FolderConnection) -> (status: FolderStatus, refresh
     }
     return (.available(url), refreshed)
 }
+
+/// Markdown files open in Context's own reader instead of another app.
+enum MarkdownFile {
+    static let extensions: Set<String> = ["md", "markdown", "mdown", "mkd", "mkdn", "mdwn"]
+    /// Larger files are left to their own app; the reader renders the whole document at once.
+    static let sizeLimit = 2_000_000
+
+    static func matches(_ url: URL) -> Bool { extensions.contains(url.pathExtension.lowercased()) }
+
+    static func load(_ url: URL) throws -> String {
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        guard size <= sizeLimit else { throw ReadError.tooLarge }
+        let data = try Data(contentsOf: url)
+        guard let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else { throw ReadError.unreadable }
+        return withoutFrontMatter(text)
+    }
+
+    /// Drops a leading YAML front-matter block (`---` … `---`), which static-site tools put at the top of Markdown files.
+    static func withoutFrontMatter(_ text: String) -> String {
+        let lines = text.components(separatedBy: "\n")
+        guard lines.first?.trimmingCharacters(in: .whitespaces) == "---",
+              let end = lines.dropFirst().firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "---" }) else { return text }
+        return lines[(end + 1)...].joined(separator: "\n").trimmingCharacters(in: .newlines)
+    }
+
+    enum ReadError: LocalizedError {
+        case tooLarge, unreadable
+        var errorDescription: String? {
+            switch self {
+            case .tooLarge: return "This file is too large to read here. Open it in its app instead."
+            case .unreadable: return "This file isn't readable text."
+            }
+        }
+    }
+}

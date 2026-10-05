@@ -150,7 +150,36 @@ MainActor.assumeIsolated {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("context-snapshot-\(UUID().uuidString)")
     let folder = root.appendingPathComponent("ayuvam-web")
     try! FileManager.default.createDirectory(at: folder.appendingPathComponent("src"), withIntermediateDirectories: true)
-    for name in ["README.md", "package.json", "hero.png", "vercel.json"] { try! Data("demo".utf8).write(to: folder.appendingPathComponent(name)) }
+    for name in ["package.json", "hero.png", "vercel.json"] { try! Data("demo".utf8).write(to: folder.appendingPathComponent(name)) }
+    let readme = folder.appendingPathComponent("README.md")
+    try! Data("""
+    ---
+    title: ayuvam-web
+    ---
+    # ayuvam-web
+
+    The storefront for **Ayuvam**: Next.js on Vercel, orders in Neon Postgres, payments through Razorpay.
+
+    ## Run it locally
+
+    ```sh
+    npm install
+    npm run dev
+    ```
+
+    ## Before launch
+
+    - [x] Product pages and checkout
+    - [ ] Monsoon campaign landing page
+    - [ ] Switch Razorpay to live keys
+
+    | Environment | URL |
+    | --- | --- |
+    | Production | ayuvam.com |
+    | Staging | ayuvam-staging.vercel.app |
+
+    > Ask Riya before changing the order schema.
+    """.utf8).write(to: readme)
     defer { try? FileManager.default.removeItem(at: root) }
 
     let store = Store(directory: root.appendingPathComponent("data"))
@@ -191,6 +220,7 @@ MainActor.assumeIsolated {
     page(.project(id), "15-note-editing")
     store.deleteEntry(blank.id)
     store.lastSection[id] = .files; page(.project(id), "16-files")
+    snap(MarkdownReaderSheet(url: readme).environmentObject(store), size: CGSize(width: 920, height: 760), to: "\(out)/18-markdown-reader.png")
     store.lastSection[id] = .overview; page(.project(id), "17-overview-dark", dark: true)
     store.lastSection[id] = .notes
     snap(NoteDocument(noteID: store.workspace.entries.first { $0.title == "Launch plan" }!.id, startEditing: true).environmentObject(store).environment(\.pageTint, Theme.color("sage")),
