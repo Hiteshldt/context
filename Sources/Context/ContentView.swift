@@ -3,7 +3,7 @@ import SwiftUI
 /// Project links shown in the ⚙ menu. Each item is hidden while its URL is nil.
 enum AppLinks {
     static let repository = URL(string: "https://github.com/Hiteshldt/context")
-    static let donate: URL? = nil       // e.g. URL(string: "https://buymeacoffee.com/<you>")
+    static let donate = URL(string: "https://ko-fi.com/hiteshgupta")
 }
 
 extension Notification.Name {
@@ -293,6 +293,9 @@ struct SidebarView: View {
                 }.contentShape(Rectangle())
             }
             .buttonStyle(.plain).help("Backup, export, and restore")
+            if let url = AppLinks.donate {
+                IconButton(icon: "heart.fill", help: "Support Context on Ko-fi", size: 26, tint: Theme.color("rose")) { NSWorkspace.shared.open(url) }
+            }
             Menu {
                 Text(store.notificationStatus)
                 if !store.notificationsAllowed { Button("Enable Notifications…") { Task { await store.enableNotifications() } } }
@@ -303,8 +306,8 @@ struct SidebarView: View {
                 Toggle("Download Website Icons", isOn: Binding(get: { icons.enabled }, set: { icons.enabled = $0 }))
                 Toggle("Global Shortcut ⌃⌥Space", isOn: $globalShortcut)
                 if AppLinks.repository != nil || AppLinks.donate != nil { Divider() }
-                if let url = AppLinks.repository { Button("Context on GitHub") { NSWorkspace.shared.open(url) } }
-                if let url = AppLinks.donate { Button("Support Context ♥") { NSWorkspace.shared.open(url) } }
+                if let url = AppLinks.repository { Button { NSWorkspace.shared.open(url) } label: { Label("Context on GitHub", systemImage: "chevron.left.forwardslash.chevron.right") } }
+                if let url = AppLinks.donate { Button { NSWorkspace.shared.open(url) } label: { Label("Support Context on Ko-fi", systemImage: "heart.fill") } }
             } label: { Image(systemName: "gearshape").foregroundStyle(Theme.ink2) }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("Settings")
         }

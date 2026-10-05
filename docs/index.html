@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Context — Free Mac App to Remember Every Project's Links, Notes &amp; Files</title>
+<meta name="description" content="Context is a free, open-source Mac app that keeps every project's links, logins, notes, files, tasks, and service map in one place, so you can pick any project back up in seconds. Local-first, no account.">
+<meta name="keywords" content="Mac app, macOS, project manager, project dashboard, link manager, bookmark manager, developer tools, freelancer tools, local-first, open source, SwiftUI, notes, tasks, launcher">
+<meta name="author" content="Hitesh Gupta">
+<meta name="robots" content="index, follow">
+<meta name="theme-color" content="#2f7d5b">
+<link rel="canonical" href="https://hiteshldt.github.io/context/">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Context">
+<meta property="og:title" content="Context — pick up any project after weeks away">
+<meta property="og:description" content="A free, local-first Mac app that remembers every project's links, notes, files, tasks, and how it all connects.">
+<meta property="og:url" content="https://hiteshldt.github.io/context/">
+<meta property="og:image" content="https://hiteshldt.github.io/context/screenshots/01-home.png">
+<meta property="og:image:alt" content="Context home screen showing projects, quick links, and recent notes">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Context — pick up any project after weeks away">
+<meta name="twitter:description" content="A free, local-first Mac app that remembers every project's links, notes, files, tasks, and how it all connects.">
+<meta name="twitter:image" content="https://hiteshldt.github.io/context/screenshots/01-home.png">
+
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%232f7d5b'/><text x='32' y='44' font-family='Georgia,serif' font-size='36' font-weight='700' fill='white' text-anchor='middle'>C</text></svg>">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Context",
+  "operatingSystem": "macOS 14 or later",
+  "applicationCategory": "ProductivityApplication",
+  "description": "A free, open-source, local-first Mac app that keeps every project's links, logins, notes, files, tasks, and service map in one place.",
+  "url": "https://hiteshldt.github.io/context/",
+  "downloadUrl": "https://github.com/Hiteshldt/context/releases/latest",
+  "softwareVersion": "0.5.0",
+  "screenshot": "https://hiteshldt.github.io/context/screenshots/01-home.png",
+  "license": "https://opensource.org/licenses/MIT",
+  "isAccessibleForFree": true,
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": { "@type": "Person", "name": "Hitesh Gupta", "url": "https://github.com/Hiteshldt" }
+}
+</script>
+
+<style>
+  :root {
+    --bg: #faf9f6; --card: #ffffff; --ink: #1d1d1b; --ink2: #5f6058; --ink3: #8b8c84;
+    --border: #e7e5df; --accent: #2f7d5b; --accent-ink: #ffffff; --rose: #de3e72; --shadow: 0 1px 2px rgba(0,0,0,.04), 0 12px 40px rgba(0,0,0,.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141414; --card: #1d1d1c; --ink: #f2f1ed; --ink2: #b3b2ab; --ink3: #85847e;
+      --border: #2c2c2a; --accent: #5cc493; --accent-ink: #0d2b1e; --rose: #ff80a8; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 40px rgba(0,0,0,.4);
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.6 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif; }
+  a { color: inherit; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+  .serif { font-family: "New York", ui-serif, Georgia, serif; }
+
+  nav { display: flex; align-items: center; justify-content: space-between; padding: 22px 0; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; text-decoration: none; font-size: 18px; }
+  .logo { width: 30px; height: 30px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font: 700 18px Georgia, serif; }
+  .nav-links { display: flex; gap: 20px; align-items: center; font-size: 15px; }
+  .nav-links a { text-decoration: none; color: var(--ink2); }
+  .nav-links a:hover { color: var(--ink); }
+
+  .hero { text-align: center; padding: 56px 0 36px; }
+  .eyebrow { color: var(--accent); font-weight: 600; font-size: 13px; letter-spacing: .12em; text-transform: uppercase; }
+  h1 { font-size: clamp(38px, 6.4vw, 66px); line-height: 1.05; margin: 14px auto 18px; max-width: 14ch; letter-spacing: -.01em; }
+  .lede { font-size: clamp(17px, 2.2vw, 20px); color: var(--ink2); max-width: 40em; margin: 0 auto 30px; }
+  .ctas { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 13px 22px; border-radius: 12px; font-weight: 600; text-decoration: none; font-size: 16px; transition: transform .15s ease, box-shadow .15s ease; }
+  .btn:hover { transform: translateY(-1px); }
+  .btn-primary { background: var(--accent); color: var(--accent-ink); box-shadow: 0 6px 20px rgba(47,125,91,.25); }
+  .btn-soft { background: var(--card); border: 1px solid var(--border); }
+  .btn svg { width: 18px; height: 18px; flex: none; }
+  .fine { color: var(--ink3); font-size: 14px; margin-top: 14px; }
+
+  .shot { margin: 40px auto 0; border-radius: 14px; overflow: hidden; border: 1px solid var(--border); box-shadow: var(--shadow); background: var(--card); }
+  .shot img { display: block; width: 100%; height: auto; }
+
+  section { padding: 72px 0 0; }
+  h2 { font-size: clamp(28px, 4vw, 40px); line-height: 1.15; margin: 0 0 12px; text-align: center; }
+  .sub { text-align: center; color: var(--ink2); max-width: 36em; margin: 0 auto 36px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 22px; }
+  .card h3 { margin: 0 0 6px; font-size: 17px; }
+  .card p { margin: 0; color: var(--ink2); font-size: 15.5px; }
+  .ico { font-size: 22px; margin-bottom: 10px; display: block; }
+
+  .gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+  .gallery figure { margin: 0; }
+  .gallery img { width: 100%; height: auto; display: block; border-radius: 12px; border: 1px solid var(--border); box-shadow: var(--shadow); }
+  .gallery figcaption { color: var(--ink2); font-size: 14.5px; margin-top: 10px; text-align: center; }
+
+  .support { margin: 80px auto 0; max-width: 680px; text-align: center; background: var(--card); border: 1px solid var(--border); border-radius: 18px; padding: 40px 24px; }
+  .heart { color: var(--rose); display: inline-block; animation: beat 1.8s ease-in-out infinite; }
+  @keyframes beat { 0%, 100% { transform: scale(1); } 15% { transform: scale(1.18); } 30% { transform: scale(1); } }
+  @media (prefers-reduced-motion: reduce) { .heart { animation: none; } .btn { transition: none; } }
+  .btn-kofi { background: #ff5e5b; color: #fff; box-shadow: 0 6px 20px rgba(255,94,91,.3); }
+
+  .kofi-float { position: fixed; right: 18px; bottom: 18px; z-index: 10; display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 999px; background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow); text-decoration: none; font-weight: 600; font-size: 14.5px; }
+  .kofi-float svg { width: 17px; height: 17px; color: var(--rose); }
+
+  footer { padding: 56px 0 90px; text-align: center; color: var(--ink3); font-size: 14px; }
+  footer a { color: var(--ink2); }
+
+  @media (max-width: 560px) {
+    .nav-links .hide-sm { display: none; }
+    .hero { padding-top: 32px; }
+    section { padding-top: 56px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a class="brand" href="./"><span class="logo" aria-hidden="true">C</span>Context</a>
+    <div class="nav-links">
+      <a class="hide-sm" href="#features">Features</a>
+      <a class="hide-sm" href="https://github.com/Hiteshldt/context">GitHub</a>
+      <a href="https://ko-fi.com/hiteshgupta" aria-label="Support Context on Ko-fi"><span class="heart">♥</span> Support</a>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="eyebrow">Free &amp; open source · for Mac</div>
+    <h1 class="serif">Pick up any project after weeks away.</h1>
+    <p class="lede">Context keeps everything around your projects in one place: the links, logins, notes, files, next steps, and how it all connects. No account, no server, no subscription. Your data stays on your Mac.</p>
+    <div class="ctas">
+      <a class="btn btn-primary" href="https://github.com/Hiteshldt/context/releases/latest">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.37 12.5c-.02-2.1 1.72-3.12 1.8-3.17-.98-1.43-2.5-1.63-3.05-1.65-1.3-.13-2.53.76-3.19.76-.66 0-1.67-.74-2.75-.72-1.41.02-2.72.82-3.44 2.09-1.47 2.55-.38 6.32 1.05 8.39.7 1.01 1.53 2.15 2.62 2.11 1.05-.04 1.45-.68 2.72-.68 1.27 0 1.63.68 2.74.66 1.13-.02 1.85-1.03 2.54-2.05.8-1.17 1.13-2.31 1.15-2.37-.03-.01-2.2-.84-2.19-3.37zM14.27 6.33c.58-.7.97-1.68.86-2.65-.83.03-1.84.55-2.44 1.25-.53.62-1 1.61-.88 2.56.93.07 1.88-.47 2.46-1.16z"/></svg>
+        Download for macOS
+      </a>
+      <a class="btn btn-soft" href="https://github.com/Hiteshldt/context">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.4-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5z"/></svg>
+        View on GitHub
+      </a>
+    </div>
+    <p class="fine">macOS 14 Sonoma or later · Apple silicon · MIT license</p>
+    <div class="shot"><img src="screenshots/01-home.png" width="1600" height="1043" alt="Context home screen with project tiles, one-click logos for each project's links, and recent notes"></div>
+  </header>
+
+  <section id="features">
+    <h2 class="serif">Everything a project needs, one page each</h2>
+    <p class="sub">Built for people juggling side projects, client work, and their own products, and tired of rebuilding context from memory.</p>
+    <div class="grid">
+      <div class="card"><span class="ico" aria-hidden="true">⌘</span><h3>⌘K to open anything</h3><p>Type “vrcl” or “neon” and press Return. Works from any app with ⌃⌥Space and from the menu bar.</p></div>
+      <div class="card"><span class="ico" aria-hidden="true">🔗</span><h3>Links with real logos</h3><p>Services, repos, social accounts, docs, and AI chats, recognised for 100+ brands.</p></div>
+      <div class="card"><span class="ico" aria-hidden="true">🗺️</span><h3>A map of how it connects</h3><p>Draw the people, apps, and services behind a project, or build it from your links in one click.</p></div>
+      <div class="card"><span class="ico" aria-hidden="true">✅</span><h3>Tasks that don't slip</h3><p>Due dates, repeats, reminders, and snooze. Overdue work stays visible even if you miss a notification.</p></div>
+      <div class="card"><span class="ico" aria-hidden="true">📝</span><h3>Notes and prompts</h3><p>Markdown with tables, checklists, and code blocks. Save the prompts you reuse every week.</p></div>
+      <div class="card"><span class="ico" aria-hidden="true">📁</span><h3>Your folders, in place</h3><p>Browse existing folders with previews. Nothing is copied, moved, or deleted.</p></div>
+      <div class="card"><span class="ico" aria-hidden="true">🔒</span><h3>Passwords in the Keychain</h3><p>Touch ID to reveal; copied passwords clear from the clipboard after 45 seconds.</p></div>
+      <div class="card"><span class="ico" aria-hidden="true">☁️</span><h3>Backup to your own cloud</h3><p>Dated copies in iCloud Drive, Google Drive, Dropbox, or OneDrive. No telemetry, ever.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="serif">A closer look</h2>
+    <p class="sub">Light and dark mode, keyboard-first, and fast because it's a native SwiftUI app.</p>
+    <div class="gallery">
+      <figure><img loading="lazy" src="screenshots/10-overview.png" width="1600" height="1043" alt="Project overview with where-things-stand note, quick links, and next steps"><figcaption>Overview: where things stand</figcaption></figure>
+      <figure><img loading="lazy" src="screenshots/13-map.png" width="1600" height="1043" alt="Map tab showing how a repo, hosting, database, and customers connect"><figcaption>Map: how it all connects</figcaption></figure>
+      <figure><img loading="lazy" src="screenshots/12-links.png" width="1600" height="1043" alt="Links tab grouping services, social accounts, and repositories with brand logos"><figcaption>Links: every dashboard, one click</figcaption></figure>
+      <figure><img loading="lazy" src="screenshots/02-launcher.png" width="1600" height="1043" alt="Command-K launcher searching across links, notes, and projects"><figcaption>⌘K: find anything</figcaption></figure>
+    </div>
+  </section>
+
+  <aside class="support" aria-labelledby="support-title">
+    <h2 id="support-title" class="serif"><span class="heart" aria-hidden="true">♥</span> Support Context</h2>
+    <p class="sub" style="margin-bottom:24px">Context is free and always will be. If it saves you time, a coffee keeps it going.</p>
+    <a class="btn btn-kofi" href="https://ko-fi.com/hiteshgupta">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.5 3 4.5 6.8 4.5c2.1 0 3.6 1.1 5.2 3 1.6-1.9 3.1-3 5.2-3 3.8 0 5.9 4 4.4 7.3C19.5 16.4 12 21 12 21z"/></svg>
+      Buy me a coffee on Ko-fi
+    </a>
+  </aside>
+
+  <footer>
+    Made by <a href="https://github.com/Hiteshldt">Hitesh Gupta</a> · <a href="https://github.com/Hiteshldt/context">Source on GitHub</a> · <a href="https://github.com/Hiteshldt/context/blob/main/LICENSE">MIT license</a><br>
+    Brand logos from Simple Icons; names and logos belong to their owners.
+  </footer>
+</div>
+
+<a class="kofi-float" href="https://ko-fi.com/hiteshgupta" aria-label="Support Context on Ko-fi">
+  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.5 3 4.5 6.8 4.5c2.1 0 3.6 1.1 5.2 3 1.6-1.9 3.1-3 5.2-3 3.8 0 5.9 4 4.4 7.3C19.5 16.4 12 21 12 21z"/></svg>
+  Support
+</a>
+</body>
+</html>

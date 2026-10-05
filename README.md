@@ -7,7 +7,12 @@
 A free, native Mac app that keeps everything around your projects in one place: the links, logins, notes, files, tasks, and how it all connects.
 No account, no server, no subscription. Your data stays on your Mac.
 
-[Download](../../releases/latest) · [Build from source](#build-from-source) · [Support the project](#support)
+[![Download for macOS](https://img.shields.io/badge/Download-macOS%2014%2B-2f7d5b?logo=apple&logoColor=white)](../../releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Swift](https://img.shields.io/badge/SwiftUI-native-orange?logo=swift&logoColor=white)](Sources/Context)
+[![Support on Ko-fi](https://img.shields.io/badge/♥%20Support-Ko--fi-ff5e5b?logo=ko-fi&logoColor=white)](https://ko-fi.com/hiteshgupta)
+
+[Website](https://hiteshldt.github.io/context/) · [Download](../../releases/latest) · [Build from source](#build-from-source) · [♥ Support](https://ko-fi.com/hiteshgupta)
 
 ![Context home screen](docs/screenshots/01-home.png)
 
@@ -115,7 +120,11 @@ The code is plain SwiftUI and AppKit in `Sources/Context`. The original product 
 
 ## Support
 
-Context is free and always will be. If it saves you time, star the repo ⭐ or tell a friend. Both help.
+Context is free and always will be. If it saves you time, you can buy me a coffee. ♥
+
+[![Support Context on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/hiteshgupta)
+
+Starring the repo ⭐ or telling a friend helps too.
 
 ## License
 
