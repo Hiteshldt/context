@@ -48,7 +48,10 @@ struct DiagramEditor: View {
     @EnvironmentObject var store: Store
     @Environment(\.present) var present
     @Environment(\.pageTint) var tint
+    @Environment(\.undoManager) var undoManager
     @State var diagram: Diagram
+    @State private var canUndo = false
+    @State private var canRedo = false
     let others: [Diagram]
     let select: (UUID) -> Void
     let create: (_ fromLinks: Bool) -> Void
@@ -94,7 +97,7 @@ struct DiagramEditor: View {
                     inspector.frame(width: 300).frame(maxHeight: max(200, viewport.height - 28), alignment: .top)
                         .padding(14).frame(maxWidth: .infinity, alignment: .topTrailing)
                 }
-                Text(diagram.nodes.isEmpty ? "Double-click anywhere to add a box" : "Drag a box's ● handle onto another box to connect them · double-click to rename · double-click empty space to add")
+                Text(diagram.nodes.isEmpty ? "Double-click anywhere to add a box" : "Drag a box's ● handle onto another box to connect them · double-click empty space to add · ⌘Z to undo")
                     .font(T.caption).foregroundStyle(Theme.ink2)
                     .padding(.horizontal, 10).padding(.vertical, 5)
                     .background(Theme.card.opacity(0.92), in: Capsule()).overlay(Capsule().strokeBorder(Theme.border))
@@ -105,9 +108,20 @@ struct DiagramEditor: View {
             .onChange(of: geo.size) { _, size in viewport = size }
         }
         .onChange(of: store.workspace.diagrams.first { $0.id == diagram.id }) { _, stored in
-            if let stored, dragOffset.isEmpty, linking == nil, groupDrag == nil, groupResize == nil, stored != diagram { diagram = stored }
+            if let stored, dragOffset.isEmpty, linking == nil, groupDrag == nil, groupResize == nil, stored != diagram {
+                // Changed elsewhere, e.g. by Undo: show it, and drop anything selected that no longer exists.
+                saveTask?.cancel()
+                diagram = stored
+                if let id = selectedNode, !stored.nodes.contains(where: { $0.id == id }) { selectedNode = nil; editingNode = nil }
+                if let id = selectedEdge, !stored.edges.contains(where: { $0.id == id }) { selectedEdge = nil }
+                if let id = selectedGroup, !stored.groups.contains(where: { $0.id == id }) { selectedGroup = nil }
+            }
         }
         .onDeleteCommand(perform: deleteSelection)
+        .onAppear(perform: refreshUndo)
+        .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidCloseUndoGroup)) { _ in refreshUndo() }
+        .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidUndoChange)) { _ in refreshUndo() }
+        .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidRedoChange)) { _ in refreshUndo() }
         .confirmationDialog("Delete the map “\(diagram.title)”?", isPresented: $confirmDelete) {
             Button("Delete Map", role: .destructive) { store.remove(diagram.id, in: \.diagrams) }
         } message: { Text("Your saved links are not affected.") }
@@ -356,8 +370,12 @@ struct DiagramEditor: View {
             } label: { MenuLabel(title: "Add", icon: "plus", primary: true, compact: true) }
                 .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
 
-            Button { withAnimation(.easeInOut(duration: 0.3)) { diagram = DiagramLayout.tidy(diagram) }; save() } label: { Label("Tidy up", systemImage: "wand.and.stars") }
-                .buttonStyle(.softCompact).help("Arrange the boxes in neat columns that follow the arrows").disabled(diagram.nodes.count < 2)
+            divider
+            IconButton(icon: "arrow.uturn.backward", help: undoManager?.undoActionName.isEmpty == false ? "Undo \(undoManager!.undoActionName) (⌘Z)" : "Undo (⌘Z)", size: 26,
+                       tint: canUndo ? Theme.ink2 : Theme.ink3.opacity(0.5)) { undoManager?.undo() }
+                .disabled(!canUndo)
+            IconButton(icon: "arrow.uturn.forward", help: "Redo (⇧⌘Z)", size: 26, tint: canRedo ? Theme.ink2 : Theme.ink3.opacity(0.5)) { undoManager?.redo() }
+                .disabled(!canRedo)
             divider
             IconButton(icon: "minus", help: "Zoom out", size: 26) { zoom = max(0.5, zoom - 0.1) }
             Text("\(Int((zoom * 100).rounded()))%").font(.system(size: 12, weight: .medium).monospacedDigit()).foregroundStyle(Theme.ink2).frame(width: 40)
@@ -715,7 +733,39 @@ struct DiagramEditor: View {
             if let id = diagram.nodes[index].entryID, let entry = store.entry(id) { diagram.nodes[index].label = entry.title }
         }
         diagram.updatedAt = Date()
+        let previous = store.workspace.diagrams.first { $0.id == diagram.id }
         store.upsert(diagram, in: \.diagrams)
+        if let previous, !Self.sameContent(previous, diagram), let undoManager {
+            Self.registerRestore(previous, in: store, undoManager: undoManager)
+            refreshUndo()
+        }
+    }
+
+    /// Whether two versions of a map differ only in their save time.
+    static func sameContent(_ a: Diagram, _ b: Diagram) -> Bool {
+        var a = a; a.updatedAt = b.updatedAt
+        return a == b
+    }
+
+    /// Registers an undo step that puts `version` back. Undoing it registers the reverse, which becomes Redo.
+    /// The step works on the stored map, so it still applies after leaving the Map tab and coming back.
+    static func registerRestore(_ version: Diagram, in store: Store, undoManager: UndoManager) {
+        undoManager.registerUndo(withTarget: store) { store in
+            MainActor.assumeIsolated {
+                // A map deleted since then stays deleted.
+                guard let current = store.workspace.diagrams.first(where: { $0.id == version.id }) else { return }
+                var restored = version
+                restored.updatedAt = Date()
+                store.upsert(restored, in: \.diagrams)
+                registerRestore(current, in: store, undoManager: undoManager)
+            }
+        }
+        undoManager.setActionName("Map Change")
+    }
+
+    func refreshUndo() {
+        canUndo = undoManager?.canUndo ?? false
+        canRedo = undoManager?.canRedo ?? false
     }
 }
 

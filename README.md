@@ -75,7 +75,8 @@ zsh scripts/build-app.sh --install   # builds, copies to /Applications, and open
 - **Details on one click:** click a box to see its notes, URL, account, environment, and connections. Plain boxes have their own notes; boxes with notes show a small ≡ marker, and hovering previews them.
 - **Groups:** Add → Group draws a labelled frame. Drag boxes in, drag the name tag to move the group with everything inside, and drag the corner to resize. Right-click a box → Put in a New Group to frame it.
 - **Connect boxes:** drag a box's ● handle onto another box. Click a connection to label it, dash it, reverse it, or delete it.
-- **Edit:** double-click empty space to add a box, double-click a box to rename it, and press **Tidy up** to arrange everything into columns.
+- **Edit:** double-click empty space to add a box and double-click a box to rename it.
+- **Undo:** made a mistake? Press **⌘Z** or the ↶ button to step back, and **⇧⌘Z** to redo. Moves, deletions, renames, connections, and groups can all be undone.
 
 ## Keyboard shortcuts
 
