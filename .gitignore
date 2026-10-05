@@ -1,0 +1,7 @@
+.build/
+dist/
+.DS_Store
+*.xcuserstate
+
+# Not part of this app
+Booking System Tour.html
