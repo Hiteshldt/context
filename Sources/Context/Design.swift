@@ -37,15 +37,23 @@ enum Theme {
     ]
 
     static func color(_ name: String) -> Color {
+        let pair = palette(name)
+        return dynamic(light: pair.light, dark: pair.dark)
+    }
+
+    /// A project colour as a fixed colour (its light-mode shade), e.g. for an Apple Reminders list.
+    static func base(_ name: String) -> NSColor { palette(name).light }
+
+    private static func palette(_ name: String) -> (light: NSColor, dark: NSColor) {
         switch name {
-        case "blue": return dynamic(light: rgb(41, 112, 238), dark: rgb(110, 166, 255))
-        case "orange": return dynamic(light: rgb(232, 104, 34), dark: rgb(255, 154, 96))
-        case "purple": return dynamic(light: rgb(126, 82, 238), dark: rgb(178, 152, 255))
-        case "rose": return dynamic(light: rgb(222, 62, 114), dark: rgb(255, 128, 168))
-        case "gold": return dynamic(light: rgb(202, 138, 4), dark: rgb(244, 200, 80))
-        case "teal": return dynamic(light: rgb(12, 148, 162), dark: rgb(84, 210, 222))
-        case "slate": return dynamic(light: rgb(88, 102, 126), dark: rgb(160, 176, 200))
-        default: return dynamic(light: rgb(14, 150, 110), dark: rgb(66, 214, 164)) // "sage"
+        case "blue": return (rgb(41, 112, 238), rgb(110, 166, 255))
+        case "orange": return (rgb(232, 104, 34), rgb(255, 154, 96))
+        case "purple": return (rgb(126, 82, 238), rgb(178, 152, 255))
+        case "rose": return (rgb(222, 62, 114), rgb(255, 128, 168))
+        case "gold": return (rgb(202, 138, 4), rgb(244, 200, 80))
+        case "teal": return (rgb(12, 148, 162), rgb(84, 210, 222))
+        case "slate": return (rgb(88, 102, 126), rgb(160, 176, 200))
+        default: return (rgb(14, 150, 110), rgb(66, 214, 164)) // "sage"
         }
     }
 
@@ -81,20 +89,14 @@ extension EnvironmentValues {
 
 // MARK: - Navigation plumbing
 
-enum Route: Hashable { case home, tasks, client(UUID), project(UUID) }
+enum Route: Hashable { case home, project(UUID) }
 
 enum SheetRoute: Identifiable {
-    case project(Project), client(Client), entry(Entry), task(WorkTask), content(ContentItem)
-    case quickLook(URL), markdown(URL), backup
+    case project(Project), entry(Entry), backup
     var id: String {
         switch self {
         case .project(let p): return "project-\(p.id)"
-        case .client(let c): return "client-\(c.id)"
         case .entry(let e): return "entry-\(e.id)"
-        case .task(let t): return "task-\(t.id)"
-        case .content(let c): return "content-\(c.id)"
-        case .quickLook(let url): return "ql-\(url.path)"
-        case .markdown(let url): return "md-\(url.path)"
         case .backup: return "backup"
         }
     }
@@ -202,31 +204,29 @@ struct MenuLabel: View {
 
 // MARK: - Building blocks
 
+/// A project's picture, or its first letter on its colour when it has none.
 struct ProjectIcon: View {
     let project: Project
     var size: CGFloat = 38
     var body: some View {
         let tint = Theme.color(project.color)
-        Text(String(project.name.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased())
-            .font(.system(size: size * 0.46, weight: .bold, design: .rounded))
-            .foregroundStyle(.white)
-            .frame(width: size, height: size)
-            .background(LinearGradient(colors: [tint, tint.opacity(0.78)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                        in: RoundedRectangle(cornerRadius: size * 0.28, style: .continuous))
-            .accessibilityHidden(true)
-    }
-}
-
-struct ClientIcon: View {
-    let name: String
-    var size: CGFloat = 38
-    var body: some View {
-        Image(systemName: "building.2.fill")
-            .font(.system(size: size * 0.42, weight: .medium))
-            .foregroundStyle(Theme.ink2)
-            .frame(width: size, height: size)
-            .background(Theme.raised, in: RoundedRectangle(cornerRadius: size * 0.28, style: .continuous))
-            .accessibilityLabel(name)
+        let shape = RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
+        Group {
+            if let image = ProjectImage.image(for: project) {
+                Image(nsImage: image).resizable().interpolation(.high).scaledToFill()
+                    .frame(width: size, height: size)
+                    .background(Theme.raised)
+                    .clipShape(shape)
+                    .overlay(shape.strokeBorder(Theme.border))
+            } else {
+                Text(String(project.name.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased())
+                    .font(.system(size: size * 0.46, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(width: size, height: size)
+                    .background(LinearGradient(colors: [tint, tint.opacity(0.78)], startPoint: .topLeading, endPoint: .bottomTrailing), in: shape)
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
 
@@ -442,6 +442,20 @@ struct Page<Content: View>: View {
 // MARK: - Dates
 
 enum DueText {
+    /// A reminder's due label. Date-only reminders say "Today" or "Fri, 7 Nov" without a time.
+    static func describe(_ date: Date, hasTime: Bool, now: Date = Date(), calendar: Calendar = .current) -> (text: String, color: Color) {
+        if hasTime { return describe(date, now: now, calendar: calendar) }
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: date)).day ?? 0
+        switch days {
+        case ..<(-1): return ("\(-days) days overdue", Theme.overdue)
+        case -1: return ("Yesterday", Theme.overdue)
+        case 0: return ("Today", Theme.today)
+        case 1: return ("Tomorrow", Theme.upcoming)
+        case 2..<7: return (date.formatted(.dateTime.weekday(.wide)), Theme.ink2)
+        default: return (date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)), Theme.ink2)
+        }
+    }
+
     static func describe(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> (text: String, color: Color) {
         let time = date.formatted(date: .omitted, time: .shortened)
         if date < now {
@@ -469,34 +483,13 @@ enum DueText {
     }
 }
 
-enum Buckets {
-    static func endOfToday(_ now: Date = Date()) -> Date {
-        Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: now))!
-    }
-    static func overdue(_ tasks: [WorkTask], now: Date = Date()) -> [WorkTask] {
-        tasks.filter { !$0.isComplete && !$0.isSnoozed(at: now) && ($0.due ?? .distantFuture) < Calendar.current.startOfDay(for: now) }
-            .sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
-    }
-    /// Due today (including earlier today and already passed times).
-    static func today(_ tasks: [WorkTask], now: Date = Date()) -> [WorkTask] {
-        let start = Calendar.current.startOfDay(for: now), end = endOfToday(now)
-        return tasks.filter { !$0.isComplete && !$0.isSnoozed(at: now) && ($0.due.map { $0 >= start && $0 < end } ?? false) }
-            .sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
-    }
-    static func upcoming(_ tasks: [WorkTask], days: Int = 7, now: Date = Date()) -> [WorkTask] {
-        let start = endOfToday(now)
-        let end = Calendar.current.date(byAdding: .day, value: days, to: start)!
-        return tasks.filter { !$0.isComplete && !$0.isSnoozed(at: now) && ($0.due.map { $0 >= start && $0 < end } ?? false) }
-            .sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
-    }
-    static func snoozed(_ tasks: [WorkTask], now: Date = Date()) -> [WorkTask] {
-        tasks.filter { $0.isSnoozed(at: now) }.sorted { ($0.snoozedUntil ?? .distantFuture) < ($1.snoozedUntil ?? .distantFuture) }
-    }
-    static func needsAttention(_ tasks: [WorkTask], now: Date = Date()) -> [WorkTask] {
-        overdue(tasks, now: now) + today(tasks, now: now)
-    }
-}
-
 extension String {
     func ifEmpty(_ fallback: String) -> String { isEmpty ? fallback : self }
+}
+
+/// Lets a view choose between two button styles at runtime.
+struct AnyButtonStyle: ButtonStyle {
+    private let make: (Configuration) -> AnyView
+    init<S: ButtonStyle>(_ style: S) { make = { AnyView(style.makeBody(configuration: $0)) } }
+    func makeBody(configuration: Configuration) -> some View { make(configuration) }
 }

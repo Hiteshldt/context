@@ -21,22 +21,37 @@ struct LinksSection: View {
     }
     var tags: [String] { Array(Set(all.flatMap(\.tags))).sorted() }
 
+    /// Notes and prompts written in earlier versions, which had a Notes tab. Shown here so they stay reachable.
+    var notes: [Entry] {
+        store.workspace.entries.filter { $0.projectID == project.id && EntryKind.noteKinds.contains($0.kind) }
+            .filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || $0.body.localizedCaseInsensitiveContains(query) }
+            .sorted { $0.title.lowercased() < $1.title.lowercased() }
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
+        Page(maxWidth: 1000, spacing: 16) {
             HStack(spacing: 12) {
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Theme.ink3)
-                    TextField("Filter links", text: $query).textFieldStyle(.plain).font(T.small).frame(width: 170)
+                    TextField("Filter links", text: $query).textFieldStyle(.plain).font(T.small).frame(width: 190)
                 }
-                .padding(.horizontal, 10).padding(.vertical, 6)
+                .padding(.horizontal, 10).padding(.vertical, 7)
                 .background(Theme.card, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Theme.border))
                 Spacer()
                 AddLinkMenu(projectID: project.id)
             }
-            .padding(.horizontal, 40).padding(.vertical, 14)
-            Rectangle().fill(Theme.border).frame(height: 1)
-            Page(spacing: 18) { list }
+            list
+            if !notes.isEmpty && filter == nil && tag == nil {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 7) {
+                        Image(systemName: "note.text").font(.system(size: 11, weight: .semibold))
+                        Text("NOTES").tracking(1.1)
+                        Text("\(notes.count)").foregroundStyle(Theme.ink3)
+                    }.font(T.label).foregroundStyle(Theme.ink2).padding(.leading, 4)
+                    Card(padding: 6) { VStack(spacing: 0) { ForEach(notes) { LinkRow(entry: $0) } } }
+                }
+            }
         }
     }
 
@@ -59,7 +74,7 @@ struct LinksSection: View {
             Card {
                 VStack(spacing: 14) {
                     EmptyState(icon: "link", title: "Everything this project links to",
-                               message: "Hosting, payments, domains, Instagram and Facebook pages, the GitHub repo, the live site, design files, and useful AI chats. Each gets its real logo.", compact: true)
+                               message: "Hosting, payments, domains, social pages, the GitHub repo, the live site, design files, and useful AI chats. Each gets its real logo.", compact: true)
                     HStack(spacing: 8) {
                         ForEach(EntryKind.linkKinds) { kind in
                             Button { present(.entry(Entry(projectID: project.id, kind: kind))) } label: { Label(kind.shortName, systemImage: kind.icon) }.buttonStyle(.softCompact)
@@ -143,11 +158,6 @@ struct LinkRow: View {
             HStack(spacing: 2) {
                 if let manage = webURL(entry.managementURL) {
                     IconButton(icon: "slider.horizontal.3", help: "Open management page") { NSWorkspace.shared.open(manage) }
-                }
-                if let folder = store.folder(entry.folderID) {
-                    IconButton(icon: "folder", help: "Open local folder in Finder") {
-                        do { NSWorkspace.shared.open(try store.resolve(folder)) } catch { store.error = error.localizedDescription }
-                    }
                 }
                 if let url {
                     IconButton(icon: copied ? "checkmark" : "doc.on.doc", help: "Copy link") {

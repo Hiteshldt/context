@@ -21,12 +21,8 @@ final class Store: ObservableObject {
     @Published var loadFailed = false
     @Published var notificationStatus = "Reminders are off"
     @Published var notificationsAllowed = false
-    /// Remembers the last open section per project for this session.
-    @Published var lastSection: [UUID: ProjectSection] = [:]
-    /// The folder shown in each project's Files section.
-    @Published var selectedFolder: [UUID: UUID] = [:]
-    /// The note open in each project's Notes section.
-    @Published var selectedNote: [UUID: UUID] = [:]
+    /// Remembers the last open tab per project for this session.
+    @Published var lastSection: [UUID: ProjectTab] = [:]
     /// Called after every successful save (used to schedule backups).
     var onChange: (() -> Void)?
     /// Bumped on wake and activation so time-based views re-evaluate "overdue" and "today".
@@ -78,22 +74,9 @@ final class Store: ObservableObject {
     // MARK: Lookups
 
     func project(_ id: UUID) -> Project? { workspace.projects.first { $0.id == id } }
-    func client(_ id: UUID?) -> Client? { id.flatMap { id in workspace.clients.first { $0.id == id } } }
     func entry(_ id: UUID) -> Entry? { workspace.entries.first { $0.id == id } }
-    func folder(_ id: UUID?) -> FolderConnection? { id.flatMap { id in workspace.folders.first { $0.id == id } } }
-    func clientName(for project: Project) -> String? { client(project.clientID)?.name }
-    func projects(for clientID: UUID) -> [Project] { workspace.projects.filter { $0.clientID == clientID } }
-    var personalProjects: [Project] { workspace.projects.filter { $0.clientID == nil } }
 
-    /// Resolves a related record id to a display title, or nil if the record was removed.
-    func recordTitle(_ id: UUID) -> (title: String, icon: String)? {
-        if let entry = entry(id) { return (entry.title, entry.kind.icon) }
-        if let task = workspace.tasks.first(where: { $0.id == id }) { return (task.title, "checkmark.circle") }
-        if let folder = folder(id) { return (folder.name, "folder") }
-        return nil
-    }
-
-    // MARK: Projects and clients
+    // MARK: Projects
 
     @discardableResult
     func save(_ project: Project) -> Bool {
@@ -130,37 +113,18 @@ final class Store: ObservableObject {
         }
     }
 
-    /// Summarises what deleting a project removes. External files are never touched.
+    /// Summarises what deleting a project removes.
     func deletionSummary(for id: UUID) -> String {
-        let w = workspace
-        let parts: [(Int, String)] = [
-            (w.entries.filter { $0.projectID == id }.count, "saved records"),
-            (w.tasks.filter { $0.projectID == id }.count, "tasks"),
-            (w.folders.filter { $0.projectID == id }.count, "folder connections"),
-            (w.contentItems.filter { $0.projectID == id }.count, "planned posts"),
-            (w.diagrams.filter { $0.projectID == id }.count, "diagrams"),
-            (w.recipes.filter { $0.projectID == id }.count, "image recipes"),
-        ]
-        let listed = parts.filter { $0.0 > 0 }.map { "\($0.0) \($0.1)" }
-        let credentials = w.credentialIDs { $0.projectID == id }.count
-        var text = listed.isEmpty ? "This project has no saved records." : "This removes \(listed.joined(separator: ", ")) from Context."
-        if credentials > 0 { text += " \(credentials) stored secrets will be deleted from the Keychain." }
-        return text + " Connected folders, exported images, and all files on disk stay untouched."
-    }
-
-    @discardableResult
-    func save(_ client: Client) -> Bool {
-        change { state in
-            if let i = state.clients.firstIndex(where: { $0.id == client.id }) { state.clients[i] = client }
-            else { state.clients.append(client) }
-        }
-    }
-
-    func deleteClient(_ id: UUID) {
-        change { state in
-            state.clients.removeAll { $0.id == id }
-            for i in state.projects.indices where state.projects[i].clientID == id { state.projects[i].clientID = nil }
-        }
+        let links = workspace.entries.filter { $0.projectID == id }.count
+        let maps = workspace.diagrams.filter { $0.projectID == id }.count
+        var parts: [String] = []
+        if maps > 0 { parts.append(maps == 1 ? "1 map" : "\(maps) maps") }
+        if links > 0 { parts.append(links == 1 ? "1 link" : "\(links) links") }
+        var text = parts.isEmpty ? "This project has nothing saved yet." : "This removes \(parts.joined(separator: " and ")) from Context."
+        let credentials = workspace.credentialIDs { $0.projectID == id }.count
+        if credentials > 0 { text += " \(credentials) saved passwords will be deleted from the Keychain." }
+        if project(id)?.remindersListID != nil { text += " Its list in Apple Reminders is kept." }
+        return text
     }
 
     // MARK: Entries and credentials
@@ -208,99 +172,10 @@ final class Store: ObservableObject {
         }
     }
 
-    // MARK: Tasks
+    // MARK: Tasks from earlier versions
 
-    @discardableResult
-    func save(_ task: WorkTask) -> Bool { upsert(task, in: \.tasks) }
-
-    func toggle(_ task: WorkTask) {
-        var updated = task
-        if updated.isComplete { updated.reopen() } else { updated.complete() }
-        save(updated)
-    }
-
-    func snooze(_ task: WorkTask, until date: Date) {
-        var updated = task
-        updated.snoozedUntil = date
-        save(updated)
-    }
-
-    /// Moves a one-off task's due date. For recurring work this snoozes the occurrence instead, keeping the schedule intact.
-    func postpone(_ task: WorkTask, to date: Date) {
-        var updated = task
-        if task.repeatRule.repeats { updated.snoozedUntil = date }
-        else {
-            if let due = task.due {
-                // Keep the original time of day when deferring by whole days.
-                let time = Calendar.current.dateComponents([.hour, .minute], from: due)
-                updated.due = Calendar.current.date(bySettingHour: time.hour ?? 9, minute: time.minute ?? 0, second: 0, of: date) ?? date
-            } else { updated.due = date }
-            updated.snoozedUntil = nil
-        }
-        save(updated)
-    }
-
+    /// Earlier versions kept their own tasks; they move into Apple Reminders when it's connected.
     func deleteTask(_ id: UUID) { remove(id, in: \.tasks) }
-
-    // MARK: Social
-
-    func togglePlatform(_ item: ContentItem, target: UUID) {
-        var updated = item
-        guard let index = updated.targets.firstIndex(where: { $0.id == target }) else { return }
-        updated.targets[index].completedAt = updated.targets[index].isDone ? nil : Date()
-        updated.updatedAt = Date()
-        upsert(updated, in: \.contentItems)
-    }
-
-    // MARK: Folders
-
-    func connectFolder(projectID: UUID, replacing: UUID? = nil, purpose: String = "") {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false; panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false; panel.prompt = replacing == nil ? "Connect Folder" : "Reconnect"
-        panel.message = "The folder stays where it is. Context saves a reference only and never copies, moves, or deletes files."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            let bookmark = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
-            let previous = folder(replacing)
-            var connection = FolderConnection(id: replacing ?? UUID(), projectID: projectID, name: url.lastPathComponent, path: url.path, bookmark: bookmark)
-            connection.purpose = previous?.purpose ?? purpose
-            if workspace.folders.contains(where: { $0.projectID == projectID && $0.path == url.path && $0.id != connection.id }) {
-                error = "\(url.lastPathComponent) is already connected to this project."
-                return
-            }
-            upsert(connection, in: \.folders)
-        } catch { self.error = error.localizedDescription }
-    }
-
-    func status(of folder: FolderConnection) -> FolderStatus {
-        let result = resolveFolder(folder)
-        if let refreshed = result.refreshed {
-            // Persist a moved folder's new location after the current view update.
-            DispatchQueue.main.async { [weak self] in
-                self?.change { state in
-                    if let i = state.folders.firstIndex(where: { $0.id == refreshed.id }) { state.folders[i] = refreshed }
-                }
-            }
-        }
-        return result.status
-    }
-
-    func resolve(_ folder: FolderConnection) throws -> URL {
-        switch status(of: folder) {
-        case .available(let url): return url
-        case .unavailable(let message): throw WorkspaceError.invalid(message)
-        }
-    }
-
-    func disconnectFolder(_ id: UUID) {
-        change { state in
-            state.folders.removeAll { $0.id == id }
-            for i in state.entries.indices where state.entries[i].folderID == id { state.entries[i].folderID = nil }
-        }
-    }
-
-    func reveal(_ url: URL) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
 
     // MARK: Backup
 
@@ -310,7 +185,7 @@ final class Store: ObservableObject {
         panel.allowedContentTypes = [.json]
         let stamp = Date().formatted(.iso8601.year().month().day())
         panel.nameFieldStringValue = "Context-backup-\(stamp).json"
-        panel.message = "A backup contains your projects, links, notes, tasks, and maps. It does not contain files in connected folders or passwords stored in the Keychain."
+        panel.message = "A backup contains your projects, maps, and links. Passwords stay in the Keychain, and reminders stay in Apple Reminders."
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             try disk.encode(workspace).write(to: url, options: .atomic)
@@ -321,7 +196,7 @@ final class Store: ObservableObject {
     func restoreBackup() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.json]
-        panel.message = "Choose a Context backup. This replaces the app's records, not connected files."
+        panel.message = "Choose a Context backup. This replaces the projects, maps, and links in Context."
         guard panel.runModal() == .OK, let url = panel.url else { return }
         restore(from: url)
     }
@@ -333,11 +208,7 @@ final class Store: ObservableObject {
             let restored = try disk.decode(Data(contentsOf: url))
             let alert = NSAlert()
             alert.messageText = "Restore this backup?"
-            let unavailable = restored.folders.filter { if case .unavailable = resolveFolder($0).status { return true }; return false }.count
-            let notes = restored.entries.filter { $0.kind == .note || $0.kind == .prompt }.count
-            var info = "This replaces what's in Context now with \(restored.projects.count) projects, \(restored.entries.count - notes) links, and \(notes) notes from the backup. Your files on disk are not touched, and a copy of the current data is kept."
-            if unavailable > 0 { info += "\n\n\(unavailable) connected folders aren't reachable on this Mac. You can reconnect them from each project's Files." }
-            alert.informativeText = info
+            alert.informativeText = "This replaces what's in Context now with \(restored.projects.count) projects, \(restored.diagrams.count) maps, and \(restored.entries.count) links from the backup. A copy of the current data is kept."
             alert.addButton(withTitle: "Restore"); alert.addButton(withTitle: "Cancel")
             guard alert.runModal() == .alertFirstButtonReturn else { return false }
             if FileManager.default.fileExists(atPath: disk.file.path) {

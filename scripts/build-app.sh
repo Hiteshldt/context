@@ -21,21 +21,24 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleExecutable</key><string>Context</string>
 <key>CFBundleIconFile</key><string>Context</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.6.3</string>
-<key>CFBundleVersion</key><string>9</string>
+<key>CFBundleShortVersionString</key><string>0.7.0</string>
+<key>CFBundleVersion</key><string>10</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>NSHumanReadableCopyright</key><string>Personal local workspace</string>
-<key>NSDocumentsFolderUsageDescription</key><string>Context shows files from folders you connect to a project. It only reads them.</string>
-<key>NSDesktopFolderUsageDescription</key><string>Context shows files from folders you connect to a project. It only reads them.</string>
-<key>NSDownloadsFolderUsageDescription</key><string>Context shows files from folders you connect to a project. It only reads them.</string>
-<key>NSRemovableVolumesUsageDescription</key><string>Context shows files from connected folders on external drives. It only reads them.</string>
-<key>NSNetworkVolumesUsageDescription</key><string>Context shows files from connected folders on network drives. It only reads them.</string>
+<key>NSRemindersFullAccessUsageDescription</key><string>Context keeps each project's reminders in its own list in Apple Reminders, so they sync to your iPhone and notify you everywhere.</string>
+<key>NSRemindersUsageDescription</key><string>Context keeps each project's reminders in its own list in Apple Reminders, so they sync to your iPhone and notify you everywhere.</string>
+<key>NSDocumentsFolderUsageDescription</key><string>Context reads project pictures you choose and saves backups to the folder you pick.</string>
+<key>NSDesktopFolderUsageDescription</key><string>Context reads project pictures you choose and saves backups to the folder you pick.</string>
+<key>NSDownloadsFolderUsageDescription</key><string>Context reads project pictures you choose and saves backups to the folder you pick.</string>
 <key>NSFileProviderDomainUsageDescription</key><string>Context saves its backups into the cloud folder you choose (Google Drive, iCloud Drive, OneDrive, or Dropbox).</string>
 </dict></plist>
 PLIST
-codesign --force --sign - "$APP"
+# Sign with a local Apple Development identity when there is one, so macOS remembers permissions
+# (such as Apple Reminders) across updates. Without one, sign ad hoc.
+IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development|Developer ID Application/ { print $2; exit }')
+codesign --force --sign "${IDENTITY:--}" "$APP"
 echo "Built: $APP"
 
 # `zsh scripts/build-app.sh --install` also replaces /Applications/Context.app (quitting the running copy first).

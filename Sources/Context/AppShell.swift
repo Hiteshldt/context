@@ -18,6 +18,7 @@ enum MainWindow {
 struct RootView: View {
     @Environment(\.openWindow) var openWindow
     @AppStorage("globalShortcut") private var globalShortcut = true
+    @AppStorage(AppAppearance.key) private var appearance = AppAppearance.system.rawValue
     @ObservedObject private var lock = AppLock.shared
     var body: some View {
         Group {
@@ -25,6 +26,7 @@ struct RootView: View {
         }
             .onAppear { MainWindow.opener = { openWindow(id: "main") } }
             .onChange(of: globalShortcut) { _, on in GlobalHotKey.shared.setEnabled(on) }
+            .onChange(of: appearance) { _, value in AppAppearance.apply(AppAppearance(rawValue: value) ?? .system) }
     }
 }
 
@@ -32,6 +34,7 @@ struct RootView: View {
 struct MenuBarPanel: View {
     @EnvironmentObject var store: Store
     @ObservedObject private var lock = AppLock.shared
+    @ObservedObject private var reminders = RemindersService.shared
     var body: some View {
         if lock.isLocked { locked } else { panel }
     }
@@ -47,7 +50,7 @@ struct MenuBarPanel: View {
     }
 
     var panel: some View {
-        let due = Buckets.needsAttention(store.workspace.tasks).count
+        let due = store.workspace.projects.reduce(0) { $0 + reminders.attentionCount(for: $1) }
         return VStack(spacing: 0) {
             LauncherView(compact: true, onActivate: { target, alternate in
                 if case .entry(let id) = target, let entry = store.entry(id), webURL(entry.url) != nil, !alternate {

@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        AppAppearance.apply(AppAppearance.current)
         if Bundle.main.bundleIdentifier != nil { UNUserNotificationCenter.current().delegate = self }
         GlobalHotKey.shared.setEnabled(UserDefaults.standard.object(forKey: "globalShortcut") as? Bool ?? true)
         NSApp.activate(ignoringOtherApps: true)
@@ -66,10 +67,8 @@ struct ContextApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {
                 Group {
-                    Button("New Note") { post(.contextNewNote) }.keyboardShortcut("n")
-                    Button("New Task…") { post(.contextNewTask) }.keyboardShortcut("t")
+                    Button("New Link…") { post(.contextNewLink) }.keyboardShortcut("n")
                     Button("New Project…") { post(.contextNewProject) }.keyboardShortcut("n", modifiers: [.command, .shift])
-                    Button("New Client…") { post(.contextNewClient) }
                 }.disabled(lock.isLocked)
             }
             CommandGroup(after: .appSettings) {
@@ -78,7 +77,12 @@ struct ContextApp: App {
             CommandMenu("Go") {
                 Group {
                     Button("Search or Jump To…") { post(.contextShowLauncher) }.keyboardShortcut("k")
-                    Button("Home") { post(.contextShowHome) }.keyboardShortcut("1")
+                    Button("Home") { post(.contextShowHome) }.keyboardShortcut("h", modifiers: [.command, .shift])
+                    Divider()
+                    ForEach(Array(ProjectTab.allCases.enumerated()), id: \.element) { index, tab in
+                        Button(tab.rawValue) { MainWindow.show(); NotificationCenter.default.post(name: .contextShowTab, object: tab) }
+                            .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")))
+                    }
                 }.disabled(lock.isLocked)
             }
             CommandMenu("Backup") {

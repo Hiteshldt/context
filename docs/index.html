@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Context — Free Mac App to Remember Every Project's Links, Notes &amp; Files</title>
-<meta name="description" content="Context is a free, open-source Mac app that keeps every project's links, logins, notes, files, tasks, and service map in one place, so you can pick any project back up in seconds. Local-first, no account.">
-<meta name="keywords" content="Mac app, macOS, project manager, project dashboard, link manager, bookmark manager, developer tools, freelancer tools, local-first, open source, SwiftUI, notes, tasks, launcher">
+<title>Context — Free Mac App: Project Maps, Links &amp; Reminders</title>
+<meta name="description" content="Context is a free, open-source Mac app: map how each project's apps and services connect, open every dashboard with one click, and keep its reminders in Apple Reminders. Local-first, no account.">
+<meta name="keywords" content="Mac app, macOS, project map, architecture diagram, link manager, bookmark manager, Apple Reminders, developer tools, freelancer tools, local-first, open source, SwiftUI, launcher">
 <meta name="author" content="Hitesh Gupta">
 <meta name="robots" content="index, follow">
 <meta name="theme-color" content="#2f7d5b">
@@ -13,15 +13,15 @@
 
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Context">
-<meta property="og:title" content="Context — pick up any project after weeks away">
-<meta property="og:description" content="A free, local-first Mac app that remembers every project's links, notes, files, tasks, and how it all connects.">
+<meta property="og:title" content="Context — every project at a glance">
+<meta property="og:description" content="A free, minimal Mac app: a map of each project, its links one click away, and reminders in Apple Reminders.">
 <meta property="og:url" content="https://hiteshldt.github.io/context/">
-<meta property="og:image" content="https://hiteshldt.github.io/context/screenshots/01-home.png">
-<meta property="og:image:alt" content="Context home screen showing projects, quick links, and recent notes">
+<meta property="og:image" content="https://hiteshldt.github.io/context/screenshots/10-map.png">
+<meta property="og:image:alt" content="A project map in Context showing how a repo, hosting, payments, and a database connect">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Context — pick up any project after weeks away">
-<meta name="twitter:description" content="A free, local-first Mac app that remembers every project's links, notes, files, tasks, and how it all connects.">
-<meta name="twitter:image" content="https://hiteshldt.github.io/context/screenshots/01-home.png">
+<meta name="twitter:title" content="Context — every project at a glance">
+<meta name="twitter:description" content="A free, minimal Mac app: a map of each project, its links one click away, and reminders in Apple Reminders.">
+<meta name="twitter:image" content="https://hiteshldt.github.io/context/screenshots/10-map.png">
 
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%232f7d5b'/><text x='32' y='44' font-family='Georgia,serif' font-size='36' font-weight='700' fill='white' text-anchor='middle'>C</text></svg>">
 
@@ -32,11 +32,11 @@
   "name": "Context",
   "operatingSystem": "macOS 14 or later",
   "applicationCategory": "ProductivityApplication",
-  "description": "A free, open-source, local-first Mac app that keeps every project's links, logins, notes, files, tasks, and service map in one place.",
+  "description": "A free, open-source, local-first Mac app: a map of each project, its links one click away, and reminders in Apple Reminders.",
   "url": "https://hiteshldt.github.io/context/",
   "downloadUrl": "https://github.com/Hiteshldt/context/releases/latest",
-  "softwareVersion": "0.6.3",
-  "screenshot": "https://hiteshldt.github.io/context/screenshots/01-home.png",
+  "softwareVersion": "0.7.0",
+  "screenshot": "https://hiteshldt.github.io/context/screenshots/10-map.png",
   "license": "https://opensource.org/licenses/MIT",
   "isAccessibleForFree": true,
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
@@ -130,8 +130,8 @@
 
   <header class="hero">
     <div class="eyebrow">Free &amp; open source · for Mac</div>
-    <h1 class="serif">Pick up any project after weeks away.</h1>
-    <p class="lede">Context keeps everything around your projects in one place: the links, logins, notes, files, next steps, and how it all connects. No account, no server, no subscription. Your data stays on your Mac.</p>
+    <h1 class="serif">Every project, at a glance.</h1>
+    <p class="lede">A map of how each project fits together, its links one click away, and its reminders in Apple Reminders. Free, minimal, and your data stays on your Mac.</p>
     <div class="ctas">
       <a class="btn btn-primary" href="https://github.com/Hiteshldt/context/releases/latest">
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.37 12.5c-.02-2.1 1.72-3.12 1.8-3.17-.98-1.43-2.5-1.63-3.05-1.65-1.3-.13-2.53.76-3.19.76-.66 0-1.67-.74-2.75-.72-1.41.02-2.72.82-3.44 2.09-1.47 2.55-.38 6.32 1.05 8.39.7 1.01 1.53 2.15 2.62 2.11 1.05-.04 1.45-.68 2.72-.68 1.27 0 1.63.68 2.74.66 1.13-.02 1.85-1.03 2.54-2.05.8-1.17 1.13-2.31 1.15-2.37-.03-.01-2.2-.84-2.19-3.37zM14.27 6.33c.58-.7.97-1.68.86-2.65-.83.03-1.84.55-2.44 1.25-.53.62-1 1.61-.88 2.56.93.07 1.88-.47 2.46-1.16z"/></svg>
@@ -143,20 +143,20 @@
       </a>
     </div>
     <p class="fine">macOS 14 Sonoma or later · Apple silicon · MIT license</p>
-    <div class="shot"><img src="screenshots/01-home.png" width="1600" height="1043" alt="Context home screen with project tiles, one-click logos for each project's links, and recent notes"></div>
+    <div class="shot"><img src="screenshots/10-map.png" width="1600" height="1043" alt="A project map in Context: repo, hosting, customers, payments, and a database, with a group and a sticky note"></div>
   </header>
 
   <section id="features">
     <h2 class="serif">Everything a project needs, one page each</h2>
     <p class="sub">Built for people juggling side projects, client work, and their own products, and tired of rebuilding context from memory.</p>
     <div class="grid">
-      <div class="card"><span class="ico" aria-hidden="true">⌘</span><h3>⌘K to open anything</h3><p>Type “vrcl” or “neon” and press Return. Works from any app with ⌃⌥Space and from the menu bar.</p></div>
-      <div class="card"><span class="ico" aria-hidden="true">🔗</span><h3>Links with real logos</h3><p>Services, repos, social accounts, docs, and AI chats, recognised for 100+ brands.</p></div>
-      <div class="card"><span class="ico" aria-hidden="true">🗺️</span><h3>A map of how it connects</h3><p>Draw the people, apps, and services behind a project, group them, and click any box to see its notes and details.</p></div>
-      <div class="card"><span class="ico" aria-hidden="true">✅</span><h3>Tasks that don't slip</h3><p>Due dates, repeats, reminders, and snooze. Overdue work stays visible even if you miss a notification.</p></div>
-      <div class="card"><span class="ico" aria-hidden="true">📝</span><h3>Notes and prompts</h3><p>Markdown with tables, checklists, and code blocks. Save the prompts you reuse every week.</p></div>
-      <div class="card"><span class="ico" aria-hidden="true">📁</span><h3>Your folders, in place</h3><p>Browse existing folders with previews, and read Markdown docs right inside the app. Nothing is copied, moved, or deleted.</p></div>
-      <div class="card"><span class="ico" aria-hidden="true">🔒</span><h3>Locked with Touch ID</h3><p>Passwords live in the Keychain, and an optional app lock asks for Touch ID or your Mac password to open Context.</p></div>
+      <div class="card"><span class="ico" aria-hidden="true">🗺️</span><h3>A map of each project</h3><p>Boxes for people, apps, and services, joined by labelled arrows. Group them, keep notes on them, pinch to zoom.</p></div>
+      <div class="card"><span class="ico" aria-hidden="true">🔗</span><h3>Links with real logos</h3><p>Dashboards, repos, social accounts, docs, and AI chats, recognised for 100+ brands. One click opens them.</p></div>
+      <div class="card"><span class="ico" aria-hidden="true">✅</span><h3>Apple Reminders, built in</h3><p>Each project gets its own list. Type “tomorrow 5pm” and the date is picked up; reminders reach your iPhone too.</p></div>
+      <div class="card"><span class="ico" aria-hidden="true">⌘</span><h3>⌘K to open anything</h3><p>Type “vrcl” or “neon” and press Return, from any app with ⌃⌥Space or from the menu bar.</p></div>
+      <div class="card"><span class="ico" aria-hidden="true">🖼️</span><h3>Project pictures</h3><p>Give every project its logo or a photo. Drop an image on its icon.</p></div>
+      <div class="card"><span class="ico" aria-hidden="true">🌗</span><h3>Light or dark</h3><p>Follow your Mac or pick one with a click.</p></div>
+      <div class="card"><span class="ico" aria-hidden="true">🔒</span><h3>Locked with Touch ID</h3><p>Passwords live in the Keychain, and an optional app lock asks for Touch ID to open Context.</p></div>
       <div class="card"><span class="ico" aria-hidden="true">☁️</span><h3>Backup to your own cloud</h3><p>Dated copies in iCloud Drive, Google Drive, Dropbox, or OneDrive. No telemetry, ever.</p></div>
     </div>
   </section>
@@ -165,10 +165,10 @@
     <h2 class="serif">A closer look</h2>
     <p class="sub">Light and dark mode, keyboard-first, and fast because it's a native SwiftUI app.</p>
     <div class="gallery">
-      <figure><img loading="lazy" src="screenshots/10-overview.png" width="1600" height="1043" alt="Project overview with where-things-stand note, quick links, and next steps"><figcaption>Overview: where things stand</figcaption></figure>
-      <figure><img loading="lazy" src="screenshots/13-map.png" width="1600" height="1043" alt="Map tab showing how a repo, hosting, database, and customers connect"><figcaption>Map: how it all connects</figcaption></figure>
+      <figure><img loading="lazy" src="screenshots/11-map-linked.png" width="1600" height="1010" alt="A selected map box with its URL, account, notes, and connections"><figcaption>Click a box: its notes and details</figcaption></figure>
+      <figure><img loading="lazy" src="screenshots/13-reminders.png" width="1600" height="1043" alt="A project's reminders, synced with Apple Reminders"><figcaption>Reminders, synced with Apple Reminders</figcaption></figure>
       <figure><img loading="lazy" src="screenshots/12-links.png" width="1600" height="1043" alt="Links tab grouping services, social accounts, and repositories with brand logos"><figcaption>Links: every dashboard, one click</figcaption></figure>
-      <figure><img loading="lazy" src="screenshots/02-launcher.png" width="1600" height="1043" alt="Command-K launcher searching across links, notes, and projects"><figcaption>⌘K: find anything</figcaption></figure>
+      <figure><img loading="lazy" src="screenshots/01-home.png" width="1600" height="1043" alt="Home with project pictures and reminders due across projects"><figcaption>Home: projects and what's due</figcaption></figure>
     </div>
   </section>
 

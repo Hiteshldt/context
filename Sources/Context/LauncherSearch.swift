@@ -1,13 +1,11 @@
 import Foundation
 
 enum LauncherAction: String, CaseIterable, Identifiable {
-    case newNote, newLink, newTask, newProject, backupNow, backupSettings, goHome
+    case newLink, newProject, backupNow, backupSettings, goHome
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .newNote: return "New note"
         case .newLink: return "New link"
-        case .newTask: return "New task"
         case .newProject: return "New project"
         case .backupNow: return "Back up now"
         case .backupSettings: return "Backup settings"
@@ -16,9 +14,7 @@ enum LauncherAction: String, CaseIterable, Identifiable {
     }
     var icon: String {
         switch self {
-        case .newNote: return "square.and.pencil"
         case .newLink: return "link.badge.plus"
-        case .newTask: return "checkmark.circle"
         case .newProject: return "plus.square.on.square"
         case .backupNow: return "arrow.clockwise.icloud"
         case .backupSettings: return "icloud"
@@ -27,9 +23,7 @@ enum LauncherAction: String, CaseIterable, Identifiable {
     }
     var keywords: String {
         switch self {
-        case .newNote: return "create add note document write"
         case .newLink: return "create add link service website bookmark"
-        case .newTask: return "create add task todo reminder"
         case .newProject: return "create add project"
         case .backupNow: return "backup save cloud export"
         case .backupSettings: return "backup cloud google drive icloud restore import export settings"
@@ -39,7 +33,7 @@ enum LauncherAction: String, CaseIterable, Identifiable {
 }
 
 enum LauncherTarget: Equatable, Hashable {
-    case entry(UUID), project(UUID), client(UUID), task(UUID), action(LauncherAction)
+    case entry(UUID), project(UUID), action(LauncherAction)
 }
 
 struct LauncherResult: Identifiable, Equatable {
@@ -108,7 +102,7 @@ enum LauncherSearch {
             var results = used.prefix(6).map { LauncherResult(target: .entry($0.id), title: $0.title, subtitle: subtitle($0), score: 0) }
             results += workspace.projects.sorted { ($0.lastOpenedAt ?? $0.updatedAt) > ($1.lastOpenedAt ?? $1.updatedAt) }.prefix(4)
                 .map { LauncherResult(target: .project($0.id), title: $0.name, subtitle: "Project", score: 0) }
-            results += [LauncherAction.newNote, .newLink, .backupNow].map { LauncherResult(target: .action($0), title: $0.title, subtitle: "Action", score: 0) }
+            results += [LauncherAction.newLink, .newProject, .backupNow].map { LauncherResult(target: .action($0), title: $0.title, subtitle: "Action", score: 0) }
             return Array(results.prefix(limit + 2))
         }
 
@@ -116,10 +110,6 @@ enum LauncherSearch {
         for project in workspace.projects {
             let s = score(query: query, fields: [(project.name, 1.1), (project.summary, 0.4)])
             if s > 0 { results.append(LauncherResult(target: .project(project.id), title: project.name, subtitle: "Project", score: s)) }
-        }
-        for client in workspace.clients {
-            let s = score(query: query, fields: [(client.name, 1.0), (client.contactName, 0.5)])
-            if s > 0 { results.append(LauncherResult(target: .client(client.id), title: client.name, subtitle: "Client", score: s)) }
         }
         for entry in workspace.entries {
             let isNote = entry.kind == .note || entry.kind == .prompt
@@ -132,10 +122,6 @@ enum LauncherSearch {
             s += min(60, entry.openCount * 6) + (entry.pinned ? 25 : 0)
             results.append(LauncherResult(target: .entry(entry.id), title: entry.title.isEmpty ? "Untitled" : entry.title,
                                           subtitle: isNote ? "\(projects[entry.projectID]?.name ?? "") · \(entry.kind.rawValue)" : subtitle(entry), score: s))
-        }
-        for task in workspace.tasks where !task.isComplete {
-            let s = score(query: query, fields: [(task.title, 0.9), (task.details, 0.3)])
-            if s > 0 { results.append(LauncherResult(target: .task(task.id), title: task.title, subtitle: "\(projects[task.projectID]?.name ?? "") · Task", score: s)) }
         }
         for action in LauncherAction.allCases {
             let s = score(query: query, fields: [(action.title, 0.9), (action.keywords, 0.5)])

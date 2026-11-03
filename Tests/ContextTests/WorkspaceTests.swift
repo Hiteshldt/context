@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import EventKit
 
 final class WorkspaceTests {
     var cleanup: [() -> Void] = []
@@ -69,10 +70,6 @@ final class WorkspaceTests {
         XCTAssertEqual(workspace.clients[0].name, "Acme")
         XCTAssertEqual(workspace.projects[0].clientID, workspace.clients[0].id)
         XCTAssertEqual(workspace.projects[1].clientID, workspace.clients[0].id)
-        XCTAssertTrue(workspace.projects[0].shows(.notes))
-        XCTAssertFalse(workspace.projects[0].shows(.files))
-        XCTAssertFalse(workspace.projects[0].shows(.links))
-        XCTAssertEqual(workspace.projects[0].sections.count, ProjectSection.allCases.count)
         XCTAssertEqual(workspace.tasks[0].repeatRule, RepeatRule(kind: .everyNDays, interval: 3))
         XCTAssertEqual(workspace.tasks[0].reminderLead, 0)
         // Saving and reloading keeps the migrated shape without legacy fields.
@@ -82,39 +79,113 @@ final class WorkspaceTests {
         XCTAssertFalse(String(decoding: try Data(contentsOf: disk.file), as: UTF8.self).contains("\"client\""))
     }
 
-    func testMergedSectionsMigrate() throws {
+    func testProjectsKeepTheirPictureListAndOldFields() throws {
+        // A project saved by an earlier version, with tabs ("sections") and an Overview note, still loads.
+        let id = UUID()
         let json = """
-        [{"section": "Overview", "title": "", "enabled": true}, {"section": "Services", "title": "Hosting", "enabled": false},
-         {"section": "Resources", "title": "", "enabled": true}, {"section": "Prompts", "title": "", "enabled": true},
-         {"section": "Notes", "title": "Journal", "enabled": false}, {"section": "Image Tools", "title": "", "enabled": true}]
+        {"id": "\(id)", "name": "Ayuvam", "summary": "", "kind": "Brand", "color": "sage", "contextNote": "Where things stand",
+         "sections": [{"section": "Overview", "title": "", "enabled": true}, {"section": "Map", "title": "", "enabled": true}],
+         "createdAt": 0}
         """
-        let configs = SectionConfig.normalized(try JSONDecoder().decode([SectionConfig].self, from: Data(json.utf8)))
-        XCTAssertEqual(configs.map(\.section), [.overview, .links, .map, .notes, .files, .tasks])
-        let links = configs[1], map = configs[2], notes = configs[3]
-        XCTAssertTrue(links.enabled)            // Resources was shown, so the merged section is shown.
-        XCTAssertEqual(links.title, "")         // "Hosting" named only the old Services section.
-        XCTAssertTrue(map.enabled)              // The map lived inside Links, so it follows Links.
-        XCTAssertTrue(notes.enabled)            // Prompts was shown.
-        XCTAssertTrue(configs[4].enabled)       // Image Tools → Files & Tools.
-        XCTAssertFalse(configs[5].enabled)      // Tasks was missing: appended hidden.
+        var project = try JSONDecoder().decode(Project.self, from: Data(json.utf8))
+        XCTAssertEqual(project.name, "Ayuvam")
+        XCTAssertEqual(project.contextNote, "Where things stand")
+        XCTAssertNil(project.image)
+        XCTAssertNil(project.remindersListID)
+        // A picture and an Apple Reminders list survive a save and reload, and old tab settings are dropped.
+        let pixel = NSImage(size: NSSize(width: 600, height: 300), flipped: false) { rect in NSColor.systemTeal.setFill(); rect.fill(); return true }
+        project.image = ProjectImage.prepare(pixel)
+        project.remindersListID = "list-123"
+        var workspace = Workspace()
+        workspace.projects = [project]
+        let disk = WorkspaceDisk(directory: try temporaryDirectory())
+        try disk.save(workspace)
+        let reloaded = try disk.load()
+        XCTAssertEqual(reloaded.projects[0].image, project.image)
+        XCTAssertEqual(reloaded.projects[0].remindersListID, "list-123")
+        XCTAssertFalse(String(decoding: try Data(contentsOf: disk.file), as: UTF8.self).contains("\"sections\""))
     }
 
-    func testMapBecomesItsOwnTab() throws {
-        // A project saved in the old default order moves to the new one.
-        let old = [ProjectSection.overview, .tasks, .links, .notes, .files].map { SectionConfig(section: $0) }
-        XCTAssertEqual(SectionConfig.normalized(old).map(\.section), [.overview, .tasks, .links, .map, .files, .notes])
-        XCTAssertTrue(SectionConfig.normalized(old).allSatisfy(\.enabled))
-        // A custom order is kept; Map slots in after Links and stays hidden when Links was hidden.
-        let custom = [SectionConfig(section: .overview), SectionConfig(section: .notes, title: "Journal"),
-                      SectionConfig(section: .links, enabled: false), SectionConfig(section: .tasks), SectionConfig(section: .files)]
-        let configs = SectionConfig.normalized(custom)
-        XCTAssertEqual(configs.map(\.section), [.overview, .notes, .links, .map, .tasks, .files])
-        XCTAssertFalse(configs[3].enabled)
-        XCTAssertEqual(configs[1].displayName, "Journal")
-        // The old "Diagrams" section now means Map.
-        XCTAssertEqual(ProjectSection.migrating("Diagrams"), .map)
-        // New projects use the new order.
-        XCTAssertEqual(Project(name: "New").sections.map(\.section), [.overview, .tasks, .links, .map, .files, .notes])
+    func testProjectPicturesAreSmallSquares() throws {
+        func render(_ size: NSSize, alpha: Bool) -> NSImage {
+            NSImage(size: size, flipped: false) { rect in
+                (alpha ? NSColor.clear : NSColor.white).setFill(); rect.fill()
+                NSColor.systemRed.setFill(); NSBezierPath(ovalIn: rect.insetBy(dx: 20, dy: 20)).fill()
+                return true
+            }
+        }
+        // A wide photo becomes a 256 px square JPEG; a logo with transparency keeps it as PNG.
+        let photo = try XCTUnwrap(ProjectImage.prepare(render(NSSize(width: 1600, height: 900), alpha: false)))
+        let photoRep = try XCTUnwrap(NSBitmapImageRep(data: photo))
+        XCTAssertTrue(photoRep.pixelsWide <= ProjectImage.side * 2 && photoRep.pixelsWide == photoRep.pixelsHigh)
+        let logo = try XCTUnwrap(ProjectImage.prepare(render(NSSize(width: 120, height: 60), alpha: true)))
+        XCTAssertEqual(Array(logo.prefix(4)), [0x89, 0x50, 0x4E, 0x47]) // PNG signature
+        XCTAssertTrue(photo.count < 120_000 && logo.count < 120_000)
+    }
+
+    func testQuickReminderReadsDatesFromText() {
+        let calendar = Calendar.current
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: Date()))!
+        let dated = QuickReminderParser.parse("Renew domain tomorrow")
+        XCTAssertEqual(dated.title, "Renew domain")
+        XCTAssertEqual(dated.due, tomorrow)
+        XCTAssertFalse(dated.hasTime)
+        let timed = QuickReminderParser.parse("Call Riya tomorrow at 5pm")
+        XCTAssertEqual(timed.title, "Call Riya")
+        XCTAssertTrue(timed.hasTime)
+        XCTAssertEqual(timed.due.map { calendar.component(.hour, from: $0) }, 17)
+        XCTAssertEqual(timed.due.map { calendar.startOfDay(for: $0) }, tomorrow)
+        // No date: the text is the title. Only a date: kept as the title rather than leaving it empty.
+        XCTAssertEqual(QuickReminderParser.parse("  Update the pricing page  "), QuickReminder(title: "Update the pricing page"))
+        XCTAssertEqual(QuickReminderParser.parse("tomorrow").title, "tomorrow")
+        XCTAssertNil(QuickReminderParser.parse("tomorrow").due)
+    }
+
+    func testRepeatOptionsMatchAppleReminders() {
+        for option in RepeatOption.choices {
+            XCTAssertEqual(RepeatOption(rules: option.rule.map { [$0] }), option)
+        }
+        XCTAssertEqual(RepeatOption(rules: [EKRecurrenceRule(recurrenceWith: .daily, interval: 3, end: nil)]), .custom)
+        XCTAssertNil(RepeatOption.custom.rule)
+        // Tasks from earlier versions keep their schedule when they move to Apple Reminders.
+        XCTAssertEqual(RepeatOption.rule(for: RepeatRule(kind: .everyNDays, interval: 3))?.interval, 3)
+        XCTAssertEqual(RepeatOption.rule(for: RepeatRule(kind: .weekly, weekdays: [2, 4]))?.daysOfTheWeek?.map { $0.dayOfTheWeek.rawValue }, [2, 4])
+        XCTAssertNil(RepeatOption.rule(for: RepeatRule(kind: .afterCompletion, interval: 2)))
+        // Date-only reminders are floating days; timed ones carry the hour and timezone.
+        let due = Calendar.current.date(from: DateComponents(year: 2026, month: 11, day: 7, hour: 17, minute: 30))!
+        XCTAssertNil(DateComponents.reminderDue(due, hasTime: false).hour)
+        XCTAssertEqual(DateComponents.reminderDue(due, hasTime: true).hour, 17)
+        XCTAssertNotNil(DateComponents.reminderDue(due, hasTime: true).timeZone)
+    }
+
+    func testRemindersSortAndCountWhatsDue() {
+        let now = Calendar.current.date(from: DateComponents(year: 2026, month: 11, day: 3, hour: 12))!
+        let today = Calendar.current.startOfDay(for: now)
+        let overdue = ReminderItem(listID: "a", title: "Late", due: today.addingTimeInterval(-86_400))
+        let dueToday = ReminderItem(listID: "a", title: "Today", due: today)
+        let laterToday = ReminderItem(listID: "a", title: "Tonight", due: now.addingTimeInterval(3_600 * 8), hasTime: true)
+        let nextWeek = ReminderItem(listID: "a", title: "Later", due: today.addingTimeInterval(86_400 * 7))
+        let undated = ReminderItem(listID: "a", title: "Someday")
+        let done = ReminderItem(listID: "a", title: "Done", due: today, isCompleted: true)
+        let sorted = [undated, nextWeek, laterToday, dueToday, overdue].sorted(by: ReminderItem.order)
+        XCTAssertEqual(sorted.map(\.title), ["Late", "Today", "Tonight", "Later", "Someday"])
+        XCTAssertEqual([overdue, dueToday, laterToday, nextWeek, undated, done].filter { $0.needsAttention(now: now) }.map(\.title), ["Late", "Today", "Tonight"])
+        XCTAssertTrue(overdue.isOverdue(now: now))
+        XCTAssertFalse(dueToday.isOverdue(now: now))   // A date-only reminder isn't overdue until the day has passed.
+    }
+
+    func testMapNotesGrowAndFitTheScreen() {
+        let short = DiagramNode(label: "Ask Riya", x: 300, y: 300, kind: .note)
+        let long = DiagramNode(label: String(repeating: "A long note about the CDN contract. ", count: 8), x: 600, y: 300, kind: .note)
+        XCTAssertEqual(DiagramLayout.size(of: short).height, 110)
+        XCTAssertTrue(DiagramLayout.size(of: long).height > 200)
+        var map = Diagram(projectID: UUID())
+        XCTAssertNil(DiagramLayout.contentBounds(map))
+        map.nodes = [short, long]
+        map.groups = [DiagramGroup(title: "Backend", x: 1000, y: 900, width: 400, height: 260)]
+        let bounds = DiagramLayout.contentBounds(map)!
+        XCTAssertEqual(bounds.minX, DiagramLayout.rect(of: short).minX)
+        XCTAssertEqual(bounds.maxY, 1160)
     }
 
     func testBrandMatching() {
@@ -201,11 +272,6 @@ final class WorkspaceTests {
         XCTAssertEqual(Markdown.togglePrefix("## ", in: "# Title"), "## Title")
         XCTAssertEqual(Markdown.togglePrefix("- ", in: "a\nb"), "- a\n- b")
         XCTAssertEqual(Markdown.togglePrefix("1. ", in: "- a"), "1. a")
-        let spans = MarkdownHighlighter.spans(for: "# Head\n**bold** and `code`\n```\nx\n```")
-        XCTAssertTrue(spans.contains(.init(range: NSRange(location: 0, length: 7), style: .heading(1))))
-        XCTAssertTrue(spans.contains { $0.style == .bold && $0.range == NSRange(location: 7, length: 8) })
-        XCTAssertTrue(spans.contains { $0.style == .code && $0.range.length == 6 })
-        XCTAssertEqual(spans.filter { $0.style == .codeBlock }.count, 3)
     }
 
     func testMapNodesDecodeWithoutNewFields() throws {
@@ -220,23 +286,6 @@ final class WorkspaceTests {
         let map = try JSONDecoder().decode(Diagram.self, from: Data(#"{"id":"\#(UUID())","projectID":"\#(UUID())","title":"Old","nodes":[],"edges":[],"updatedAt":0}"#.utf8))
         XCTAssertEqual(map.title, "Old")
         XCTAssertTrue(map.groups.isEmpty)
-    }
-
-    func testMarkdownFilesReadInPlace() throws {
-        XCTAssertTrue(MarkdownFile.matches(URL(fileURLWithPath: "/x/README.md")))
-        XCTAssertTrue(MarkdownFile.matches(URL(fileURLWithPath: "/x/Notes.MARKDOWN")))
-        XCTAssertFalse(MarkdownFile.matches(URL(fileURLWithPath: "/x/notes.txt")))
-        XCTAssertEqual(MarkdownFile.withoutFrontMatter("---\ntitle: Hi\n---\n# Heading\nBody"), "# Heading\nBody")
-        XCTAssertEqual(MarkdownFile.withoutFrontMatter("# No front matter\n---\nrule"), "# No front matter\n---\nrule")
-        let folder = try temporaryDirectory()
-        let file = folder.appendingPathComponent("plan.md")
-        try Data("# Plan\n- [ ] Ship".utf8).write(to: file)
-        let before = try Data(contentsOf: file)
-        XCTAssertEqual(try MarkdownFile.load(file), "# Plan\n- [ ] Ship")
-        XCTAssertEqual(try Data(contentsOf: file), before)   // Reading never changes the original.
-        let big = folder.appendingPathComponent("huge.md")
-        try Data(repeating: 65, count: MarkdownFile.sizeLimit + 1).write(to: big)
-        XCTAssertThrowsError(try MarkdownFile.load(big))
     }
 
     func testMapGroups() throws {
@@ -473,14 +522,6 @@ final class WorkspaceTests {
         XCTAssertTrue(item.isComplete)
     }
 
-    func testSectionConfigNormalizes() {
-        let configs = SectionConfig.normalized([SectionConfig(section: .notes, title: "Journal"), SectionConfig(section: .notes, enabled: false), SectionConfig(section: .overview, enabled: false)])
-        XCTAssertEqual(configs.first?.section, .overview)
-        XCTAssertTrue(configs[0].enabled)
-        XCTAssertEqual(configs[1].displayName, "Journal")
-        XCTAssertEqual(configs.count, ProjectSection.allCases.count)
-    }
-
     func testCredentialsAreReferencesOnly() throws {
         let project = Project(name: "Test")
         var workspace = Workspace()
@@ -500,47 +541,6 @@ final class WorkspaceTests {
         XCTAssertNil(webURL("example.com"))
     }
 
-    func testFolderBrowsingDoesNotRecurseOrModifyOriginals() throws {
-        let root = try temporaryDirectory()
-        let nested = root.appendingPathComponent("nested")
-        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: false)
-        let content = Data("original".utf8)
-        let file = root.appendingPathComponent("note.txt")
-        try content.write(to: file)
-        try content.write(to: nested.appendingPathComponent("deep.txt"))
-        let listing = try FolderListing.read(root)
-        XCTAssertEqual(Set(listing.items.map { $0.url.lastPathComponent }), ["nested", "note.txt"])
-        XCTAssertEqual(try Data(contentsOf: file), content)
-        XCTAssertFalse(listing.truncated)
-    }
-
-    func testFolderListingIsBoundedAndPages() throws {
-        let root = try temporaryDirectory()
-        for i in 0..<510 { try Data().write(to: root.appendingPathComponent("\(i).txt")) }
-        let listing = try FolderListing.read(root)
-        XCTAssertEqual(listing.items.count, 500)
-        XCTAssertTrue(listing.truncated)
-        let more = try FolderListing.read(root, limit: 1000)
-        XCTAssertEqual(more.items.count, 510)
-        XCTAssertFalse(more.truncated)
-    }
-
-    func testMovedFolderResolvesAndMissingFolderReportsUnavailable() throws {
-        let root = try temporaryDirectory()
-        let original = root.appendingPathComponent("assets")
-        try FileManager.default.createDirectory(at: original, withIntermediateDirectories: false)
-        let bookmark = try original.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
-        let folder = FolderConnection(projectID: UUID(), name: "assets", path: original.path, bookmark: bookmark)
-        let moved = root.appendingPathComponent("assets-renamed")
-        try FileManager.default.moveItem(at: original, to: moved)
-        let result = resolveFolder(folder)
-        guard case .available(let resolved) = result.status else { fatalError("Moved folder should resolve") }
-        XCTAssertEqual(resolved.lastPathComponent, "assets-renamed")
-        XCTAssertEqual(result.refreshed.map { URL(fileURLWithPath: $0.path).lastPathComponent }, "assets-renamed")
-        try FileManager.default.removeItem(at: moved)
-        if case .available = resolveFolder(folder).status { fatalError("Deleted folder should be unavailable") }
-    }
-
 }
 
 var assertionCount = 0
@@ -552,6 +552,11 @@ func XCTAssertTrue(_ value: Bool, file: StaticString = #filePath, line: UInt = #
 func XCTAssertFalse(_ value: Bool, file: StaticString = #filePath, line: UInt = #line) { XCTAssertEqual(value, false, file: file, line: line) }
 func XCTAssertNil<T>(_ value: T?, file: StaticString = #filePath, line: UInt = #line) { XCTAssertTrue(value == nil, file: file, line: line) }
 func XCTAssertNotNil<T>(_ value: T?, file: StaticString = #filePath, line: UInt = #line) { XCTAssertTrue(value != nil, file: file, line: line) }
+func XCTUnwrap<T>(_ value: T?, file: StaticString = #filePath, line: UInt = #line) throws -> T {
+    assertionCount += 1
+    guard let value else { fatalError("Unexpected nil at \(file):\(line)") }
+    return value
+}
 func XCTAssertThrowsError<T>(_ expression: @autoclosure () throws -> T, file: StaticString = #filePath, line: UInt = #line) {
     assertionCount += 1
     do { _ = try expression() } catch { return }
@@ -563,78 +568,47 @@ struct TestRunner {
     static func main() throws {
         let tests = WorkspaceTests()
         defer { tests.finish() }
-        try tests.testWorkspaceRoundTripAndPreviousVersionBackup()
-        print("PASS testWorkspaceRoundTripAndPreviousVersionBackup")
-        try tests.testCorruptDataIsNotSilentlyReplaced()
-        print("PASS testCorruptDataIsNotSilentlyReplaced")
-        try tests.testInvalidReferencesAndVersionsRejected()
-        print("PASS testInvalidReferencesAndVersionsRejected")
-        try tests.testVersionOneDataMigrates()
-        print("PASS testVersionOneDataMigrates")
-        try tests.testMergedSectionsMigrate()
-        print("PASS testMergedSectionsMigrate")
-        try tests.testMapBecomesItsOwnTab()
-        print("PASS testMapBecomesItsOwnTab")
-        tests.testBrandMatching()
-        print("PASS testBrandMatching")
-        tests.testEveryBrandIconParses()
-        print("PASS testEveryBrandIconParses")
-        tests.testMarkdownTablesAndBlocks()
-        print("PASS testMarkdownTablesAndBlocks")
-        tests.testMarkdownEditingHelpers()
-        print("PASS testMarkdownEditingHelpers")
-        try tests.testMapNodesDecodeWithoutNewFields()
-        print("PASS testMapNodesDecodeWithoutNewFields")
-        try tests.testMapGroups()
-        print("PASS testMapGroups")
-        try tests.testMarkdownFilesReadInPlace()
-        print("PASS testMarkdownFilesReadInPlace")
-        tests.testMapTidyAndBuildFromLinks()
-        print("PASS testMapTidyAndBuildFromLinks")
-        tests.testLauncherRanking()
-        print("PASS testLauncherRanking")
-        try tests.testBackupWriterKeepsOneFilePerDayAndPrunes()
-        print("PASS testBackupWriterKeepsOneFilePerDayAndPrunes")
-        try tests.testCloudFolderDetection()
-        print("PASS testCloudFolderDetection")
-        tests.testDuplicateIdentifiersRejected()
-        print("PASS testDuplicateIdentifiersRejected")
-        tests.testRecurringTaskRequiresDueDate()
-        print("PASS testRecurringTaskRequiresDueDate")
-        tests.testDiagramEdgesMustReferenceNodes()
-        print("PASS testDiagramEdgesMustReferenceNodes")
-        tests.testOneOffCompletionPreservesHistory()
-        print("PASS testOneOffCompletionPreservesHistory")
-        tests.testRecurringCompletionAdvancesPastMissedDates()
-        print("PASS testRecurringCompletionAdvancesPastMissedDates")
-        tests.testDailyRecurrencePreservesWallClockAcrossDaylightSaving()
-        print("PASS testDailyRecurrencePreservesWallClockAcrossDaylightSaving")
-        tests.testCompletingEarlyAdvancesExactlyOneOccurrence()
-        print("PASS testCompletingEarlyAdvancesExactlyOneOccurrence")
-        tests.testWeeklyOnSelectedWeekdays()
-        print("PASS testWeeklyOnSelectedWeekdays")
-        tests.testMultipleTimesPerDay()
-        print("PASS testMultipleTimesPerDay")
-        tests.testFollowUpAfterCompletion()
-        print("PASS testFollowUpAfterCompletion")
-        tests.testSnoozeDoesNotChangeRecurrence()
-        print("PASS testSnoozeDoesNotChangeRecurrence")
-        tests.testNotificationTimeIndependentOfDueDate()
-        print("PASS testNotificationTimeIndependentOfDueDate")
-        tests.testPostingCompletionIsPerPlatform()
-        print("PASS testPostingCompletionIsPerPlatform")
-        tests.testSectionConfigNormalizes()
-        print("PASS testSectionConfigNormalizes")
-        try tests.testCredentialsAreReferencesOnly()
-        print("PASS testCredentialsAreReferencesOnly")
-        tests.testOnlyExplicitWebURLsAccepted()
-        print("PASS testOnlyExplicitWebURLsAccepted")
-        try tests.testFolderBrowsingDoesNotRecurseOrModifyOriginals()
-        print("PASS testFolderBrowsingDoesNotRecurseOrModifyOriginals")
-        try tests.testFolderListingIsBoundedAndPages()
-        print("PASS testFolderListingIsBoundedAndPages")
-        try tests.testMovedFolderResolvesAndMissingFolderReportsUnavailable()
-        print("PASS testMovedFolderResolvesAndMissingFolderReportsUnavailable")
-        print("36 tests passed; \(assertionCount) assertions")
+        let all: [(String, () throws -> Void)] = [
+            ("testWorkspaceRoundTripAndPreviousVersionBackup", { try tests.testWorkspaceRoundTripAndPreviousVersionBackup() }),
+            ("testCorruptDataIsNotSilentlyReplaced", { try tests.testCorruptDataIsNotSilentlyReplaced() }),
+            ("testInvalidReferencesAndVersionsRejected", { try tests.testInvalidReferencesAndVersionsRejected() }),
+            ("testVersionOneDataMigrates", { try tests.testVersionOneDataMigrates() }),
+            ("testProjectsKeepTheirPictureListAndOldFields", { try tests.testProjectsKeepTheirPictureListAndOldFields() }),
+            ("testProjectPicturesAreSmallSquares", { try tests.testProjectPicturesAreSmallSquares() }),
+            ("testQuickReminderReadsDatesFromText", { tests.testQuickReminderReadsDatesFromText() }),
+            ("testRepeatOptionsMatchAppleReminders", { tests.testRepeatOptionsMatchAppleReminders() }),
+            ("testRemindersSortAndCountWhatsDue", { tests.testRemindersSortAndCountWhatsDue() }),
+            ("testMapNotesGrowAndFitTheScreen", { tests.testMapNotesGrowAndFitTheScreen() }),
+            ("testBrandMatching", { tests.testBrandMatching() }),
+            ("testEveryBrandIconParses", { tests.testEveryBrandIconParses() }),
+            ("testMarkdownTablesAndBlocks", { tests.testMarkdownTablesAndBlocks() }),
+            ("testMarkdownEditingHelpers", { tests.testMarkdownEditingHelpers() }),
+            ("testMapNodesDecodeWithoutNewFields", { try tests.testMapNodesDecodeWithoutNewFields() }),
+            ("testMapGroups", { try tests.testMapGroups() }),
+            ("testMapTidyAndBuildFromLinks", { tests.testMapTidyAndBuildFromLinks() }),
+            ("testLauncherRanking", { tests.testLauncherRanking() }),
+            ("testBackupWriterKeepsOneFilePerDayAndPrunes", { try tests.testBackupWriterKeepsOneFilePerDayAndPrunes() }),
+            ("testCloudFolderDetection", { try tests.testCloudFolderDetection() }),
+            ("testDuplicateIdentifiersRejected", { tests.testDuplicateIdentifiersRejected() }),
+            ("testRecurringTaskRequiresDueDate", { tests.testRecurringTaskRequiresDueDate() }),
+            ("testDiagramEdgesMustReferenceNodes", { tests.testDiagramEdgesMustReferenceNodes() }),
+            ("testOneOffCompletionPreservesHistory", { tests.testOneOffCompletionPreservesHistory() }),
+            ("testRecurringCompletionAdvancesPastMissedDates", { tests.testRecurringCompletionAdvancesPastMissedDates() }),
+            ("testDailyRecurrencePreservesWallClockAcrossDaylightSaving", { tests.testDailyRecurrencePreservesWallClockAcrossDaylightSaving() }),
+            ("testCompletingEarlyAdvancesExactlyOneOccurrence", { tests.testCompletingEarlyAdvancesExactlyOneOccurrence() }),
+            ("testWeeklyOnSelectedWeekdays", { tests.testWeeklyOnSelectedWeekdays() }),
+            ("testMultipleTimesPerDay", { tests.testMultipleTimesPerDay() }),
+            ("testFollowUpAfterCompletion", { tests.testFollowUpAfterCompletion() }),
+            ("testSnoozeDoesNotChangeRecurrence", { tests.testSnoozeDoesNotChangeRecurrence() }),
+            ("testNotificationTimeIndependentOfDueDate", { tests.testNotificationTimeIndependentOfDueDate() }),
+            ("testPostingCompletionIsPerPlatform", { tests.testPostingCompletionIsPerPlatform() }),
+            ("testCredentialsAreReferencesOnly", { try tests.testCredentialsAreReferencesOnly() }),
+            ("testOnlyExplicitWebURLsAccepted", { tests.testOnlyExplicitWebURLsAccepted() }),
+        ]
+        for (name, run) in all {
+            try run()
+            print("PASS \(name)")
+        }
+        print("\(all.count) tests passed; \(assertionCount) assertions")
     }
 }

@@ -7,7 +7,20 @@ enum DiagramLayout {
     static let grid: Double = 10
 
     static func size(of node: DiagramNode) -> CGSize {
-        node.entryID == nil && node.kind == .note ? CGSize(width: 190, height: 110) : CGSize(width: 196, height: 62)
+        node.entryID == nil && node.kind == .note ? CGSize(width: 190, height: noteHeight(node.label)) : CGSize(width: 196, height: 62)
+    }
+
+    /// Sticky notes grow with their text (about 26 characters a line) so nothing is cut off.
+    static func noteHeight(_ text: String) -> Double {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+            .reduce(0) { $0 + max(1, Int((Double($1.count) / 26).rounded(.up))) }
+        return min(400, max(110, 24 + Double(lines) * 17))
+    }
+
+    /// Everything on the map, for fitting it on screen. Nil when the map is empty.
+    static func contentBounds(_ diagram: Diagram) -> CGRect? {
+        let rects = diagram.nodes.map { rect(of: $0) } + diagram.groups.map { rect(of: $0) }
+        return rects.isEmpty ? nil : rects.reduce(CGRect.null) { $0.union($1) }
     }
 
     static func rect(of node: DiagramNode, offset: CGSize = .zero) -> CGRect {

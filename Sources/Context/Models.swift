@@ -11,118 +11,16 @@ enum ProjectStatus: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-enum ProjectSection: String, Codable, CaseIterable, Identifiable {
-    case overview = "Overview", tasks = "Tasks", links = "Links", map = "Map", files = "Files", notes = "Notes"
+/// The three areas of a project, in display order. The map comes first: it's the project at a glance.
+enum ProjectTab: String, CaseIterable, Identifiable {
+    case map = "Map", links = "Links", reminders = "Reminders"
     var id: String { rawValue }
     var icon: String {
         switch self {
-        case .overview: return "square.grid.2x2"
-        case .tasks: return "checkmark.circle"
-        case .links: return "link"
         case .map: return "point.3.connected.trianglepath.dotted"
-        case .files: return "folder"
-        case .notes: return "note.text"
+        case .links: return "link"
+        case .reminders: return "checklist"
         }
-    }
-    var summary: String {
-        switch self {
-        case .overview: return "Where things stand, quick links, and recent work"
-        case .tasks: return "Tasks, reminders, and planned posts"
-        case .links: return "Services, social accounts, repos, websites, docs, and AI chats"
-        case .map: return "A diagram of how the project's people, apps, and services connect"
-        case .files: return "Connected folders with your working files"
-        case .notes: return "Notes, documents, and reusable prompts"
-        }
-    }
-    static let enabledByDefault: Set<ProjectSection> = Set(ProjectSection.allCases)
-
-    /// Earlier versions had separate sections that are now combined.
-    static func migrating(_ raw: String) -> ProjectSection? {
-        if let section = ProjectSection(rawValue: raw) { return section }
-        switch raw {
-        case "Resources", "Services", "Social": return .links
-        case "Prompts": return .notes
-        case "Diagrams": return .map
-        case "Files & Tools", "Image Tools": return .files
-        default: return nil
-        }
-    }
-}
-
-/// An enabled area of a project with a customizable name and position. Array order is display order.
-struct SectionConfig: Codable, Equatable, Hashable, Identifiable {
-    var section: ProjectSection
-    var title = ""
-    var enabled = true
-    var id: ProjectSection { section }
-    var displayName: String {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? section.rawValue : trimmed
-    }
-
-    static func defaults(enabled: Set<ProjectSection> = ProjectSection.enabledByDefault) -> [SectionConfig] {
-        ProjectSection.allCases.map { SectionConfig(section: $0, enabled: enabled.contains($0)) }
-    }
-
-    /// Overview always comes first and stays enabled. Duplicates (e.g. old sections that were merged) are combined:
-    /// the first position wins and the section is shown if any of them was shown. Missing sections are appended hidden.
-    static func normalized(_ configs: [SectionConfig]) -> [SectionConfig] {
-        let configs = configs.contains { $0.section == .map } ? configs : addingMap(to: configs)
-        var seen = Set<ProjectSection>()
-        var result: [SectionConfig] = []
-        let overview = configs.first { $0.section == .overview } ?? SectionConfig(section: .overview)
-        result.append(SectionConfig(section: .overview, title: overview.title, enabled: true))
-        seen.insert(.overview)
-        for config in configs {
-            if seen.contains(config.section) {
-                if config.enabled, let index = result.firstIndex(where: { $0.section == config.section }) { result[index].enabled = true }
-                continue
-            }
-            seen.insert(config.section)
-            result.append(config)
-        }
-        for section in ProjectSection.allCases where !seen.contains(section) {
-            result.append(SectionConfig(section: section, enabled: false))
-        }
-        return result
-    }
-
-    /// The map used to live inside Links. Data saved before it had its own tab gets Map right after Links,
-    /// shown if Links was shown. Projects still in the old default order move to the new one (Files before Notes).
-    private static func addingMap(to configs: [SectionConfig]) -> [SectionConfig] {
-        guard let links = configs.firstIndex(where: { $0.section == .links }) else { return configs }
-        let map = SectionConfig(section: .map, enabled: configs.contains { $0.section == .links && $0.enabled })
-        if configs.map(\.section) == [.overview, .tasks, .links, .notes, .files] {
-            return ProjectSection.allCases.map { section in configs.first { $0.section == section } ?? map }
-        }
-        var result = configs
-        result.insert(map, at: links + 1)
-        return result
-    }
-}
-
-extension SectionConfig {
-    enum CodingKeys: String, CodingKey { case section, title, enabled }
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        let raw = try c.decode(String.self, forKey: .section)
-        guard let section = ProjectSection.migrating(raw) else {
-            throw DecodingError.dataCorruptedError(forKey: .section, in: c, debugDescription: "Unknown section \(raw)")
-        }
-        self.section = section
-        // A custom name given to a section that has since been merged no longer describes the combined section.
-        title = section.rawValue == raw ? try c.value(.title, "") : ""
-        enabled = try c.value(.enabled, true)
-    }
-}
-
-extension ProjectSection {
-    init(from decoder: Decoder) throws {
-        let raw = try decoder.singleValueContainer().decode(String.self)
-        guard let section = ProjectSection.migrating(raw) else {
-            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Unknown section \(raw)"))
-        }
-        self = section
     }
 }
 
@@ -134,7 +32,11 @@ struct Project: Identifiable, Codable, Equatable {
     var status: ProjectStatus = .active
     var clientID: UUID?
     var color = "sage"
-    var sections = SectionConfig.defaults()
+    /// A small square picture (PNG or JPEG, at most 256 px) shown instead of the coloured letter.
+    var image: Data?
+    /// The Apple Reminders list holding this project's reminders (`EKCalendar.calendarIdentifier`).
+    var remindersListID: String?
+    /// Written by earlier versions' Overview tab. Kept so nothing is lost; no longer shown.
     var contextNote = ""
     var createdAt = Date()
     var updatedAt = Date()
@@ -142,12 +44,8 @@ struct Project: Identifiable, Codable, Equatable {
     /// Version 1 stored the client as free text. Read during migration only; never written.
     var legacyClient: String?
 
-    var visibleSections: [SectionConfig] { sections.filter(\.enabled) }
-    func shows(_ section: ProjectSection) -> Bool { section == .overview || sections.contains { $0.section == section && $0.enabled } }
-    func name(of section: ProjectSection) -> String { sections.first { $0.section == section }?.displayName ?? section.rawValue }
-
     enum CodingKeys: String, CodingKey {
-        case id, name, summary, kind, status, clientID, color, sections, contextNote, createdAt, updatedAt, lastOpenedAt, client
+        case id, name, summary, kind, status, clientID, color, image, remindersListID, contextNote, createdAt, updatedAt, lastOpenedAt, client
     }
 }
 
@@ -161,13 +59,9 @@ extension Project {
         status = try c.value(.status, .active)
         clientID = try c.decodeIfPresent(UUID.self, forKey: .clientID)
         color = try c.value(.color, "sage")
-        if let configs = try? c.decode([SectionConfig].self, forKey: .sections) {
-            sections = SectionConfig.normalized(configs)
-        } else if let legacy = try c.decodeIfPresent([ProjectSection].self, forKey: .sections) {
-            sections = SectionConfig.normalized(legacy.map { SectionConfig(section: $0) })
-        } else {
-            sections = SectionConfig.defaults()
-        }
+        // Earlier versions also stored which tabs were shown ("sections"); the tabs are now fixed, so that's ignored.
+        image = try c.decodeIfPresent(Data.self, forKey: .image)
+        remindersListID = try c.decodeIfPresent(String.self, forKey: .remindersListID)
         contextNote = try c.value(.contextNote, "")
         createdAt = try c.value(.createdAt, Date())
         updatedAt = try c.value(.updatedAt, createdAt)
@@ -185,7 +79,8 @@ extension Project {
         try c.encode(status, forKey: .status)
         try c.encodeIfPresent(clientID, forKey: .clientID)
         try c.encode(color, forKey: .color)
-        try c.encode(sections, forKey: .sections)
+        try c.encodeIfPresent(image, forKey: .image)
+        try c.encodeIfPresent(remindersListID, forKey: .remindersListID)
         try c.encode(contextNote, forKey: .contextNote)
         try c.encode(createdAt, forKey: .createdAt)
         try c.encode(updatedAt, forKey: .updatedAt)
@@ -255,7 +150,6 @@ enum EntryKind: String, Codable, CaseIterable, Identifiable {
         default: return "Notes"
         }
     }
-    var section: ProjectSection { self == .note || self == .prompt ? .notes : .links }
     /// Plural label used for filters and list groups.
     var groupName: String {
         switch self {

@@ -20,7 +20,7 @@ struct LauncherView: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass").font(.system(size: compact ? 14 : 17, weight: .medium)).foregroundStyle(Theme.ink3)
-                TextField("Search links, notes, projects…", text: $query)
+                TextField("Search links and projects…", text: $query)
                     .textFieldStyle(.plain).font(.system(size: compact ? 15 : 19))
                     .focused($focused)
                     .onSubmit { activate(results, alternate: false) }
@@ -40,7 +40,7 @@ struct LauncherView: View {
             if results.isEmpty {
                 VStack(spacing: 6) {
                     Text("Nothing matches “\(query)”").font(T.bodyMedium).foregroundStyle(Theme.ink)
-                    Text("Try a service name, a word from a note, or a project.").font(T.small).foregroundStyle(Theme.ink2)
+                    Text("Try a service name, a word from a link's notes, or a project.").font(T.small).foregroundStyle(Theme.ink2)
                 }.frame(maxWidth: .infinity).padding(.vertical, 28)
             } else {
                 ScrollViewReader { proxy in
@@ -118,9 +118,8 @@ struct LauncherRow: View {
         switch result.target {
         case .entry(let id):
             guard let entry = store.entry(id) else { return "Open" }
-            return webURL(entry.url) != nil ? "Open in browser" : (entry.kind == .note || entry.kind == .prompt ? "Open note" : "Edit")
-        case .project, .client: return "Go to"
-        case .task: return "Open task"
+            return webURL(entry.url) != nil ? "Open in browser" : "Open"
+        case .project: return "Go to"
         case .action: return "Run"
         }
     }
@@ -134,10 +133,6 @@ struct LauncherRow: View {
             }
         case .project(let id):
             if let project = store.project(id) { ProjectIcon(project: project, size: 30) }
-        case .client(let id):
-            ClientIcon(name: store.client(id)?.name ?? "", size: 30)
-        case .task:
-            symbol("checkmark.circle", Theme.today)
         case .action(let action):
             symbol(action.icon, tint)
         }

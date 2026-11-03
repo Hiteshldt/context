@@ -39,11 +39,6 @@ struct DiagramSection: View {
     }
 }
 
-private struct ScrollOriginKey: PreferenceKey {
-    static var defaultValue: CGPoint = .zero
-    static func reduce(value: inout CGPoint, nextValue: () -> CGPoint) { value = nextValue() }
-}
-
 struct DiagramEditor: View {
     @EnvironmentObject var store: Store
     @Environment(\.present) var present
@@ -68,45 +63,50 @@ struct DiagramEditor: View {
     @State private var groupResize: (id: UUID, grow: CGSize)?
     /// A connection being dragged out from a node's handle.
     @State private var linking: (from: UUID, to: CGPoint)?
-    @State private var zoom: CGFloat = 1
-    @State private var scrollOrigin: CGPoint = .zero
-    @State private var viewport: CGSize = .zero
+    @StateObject private var viewport = MapViewport()
+    @State private var keyMonitor: Any?
     @State private var confirmDelete = false
     @State private var renaming = false
     @State private var newTitle = ""
     @State private var saveTask: Task<Void, Never>?
 
+    var hasSelection: Bool { selectedNode != nil || selectedEdge != nil || selectedGroup != nil }
+
     var body: some View {
-        GeometryReader { geo in
+        HStack(spacing: 0) {
             ZStack(alignment: .topLeading) {
-                ScrollView([.horizontal, .vertical]) {
+                MapScrollView(viewport: viewport, size: DiagramLayout.canvas, onReady: fitToContent) {
                     canvas
                         .frame(width: DiagramLayout.canvas.width, height: DiagramLayout.canvas.height, alignment: .topLeading)
-                        .scaleEffect(zoom, anchor: .topLeading)
-                        .frame(width: DiagramLayout.canvas.width * zoom, height: DiagramLayout.canvas.height * zoom, alignment: .topLeading)
-                        .background(GeometryReader { inner in
-                            Color.clear.preference(key: ScrollOriginKey.self, value: inner.frame(in: .named("viewport")).origin)
-                        })
+                        .environmentObject(store)
+                        .environment(\.pageTint, tint)
+                        .environment(\.present, present)
+                        .tint(tint)
                 }
-                .coordinateSpace(name: "viewport")
-                .onPreferenceChange(ScrollOriginKey.self) { scrollOrigin = $0 }
                 .background(Theme.background)
 
-                toolbar.padding(14)
-                if selectedNode != nil || selectedEdge != nil || selectedGroup != nil {
-                    inspector.frame(width: 300).frame(maxHeight: max(200, viewport.height - 28), alignment: .top)
-                        .padding(14).frame(maxWidth: .infinity, alignment: .topTrailing)
-                }
-                Text(diagram.nodes.isEmpty ? "Double-click anywhere to add a box" : "Drag a box's ● handle onto another box to connect them · double-click empty space to add · ⌘Z to undo")
+                toolbar.padding(12)
+                Text(diagram.nodes.isEmpty ? "Double-click anywhere to add a box"
+                                           : "Drag empty space to move · pinch or ⌘-scroll to zoom · drag a box's ● onto another to connect · ⌘Z to undo")
                     .font(T.caption).foregroundStyle(Theme.ink2)
                     .padding(.horizontal, 10).padding(.vertical, 5)
                     .background(Theme.card.opacity(0.92), in: Capsule()).overlay(Capsule().strokeBorder(Theme.border))
-                    .padding(14).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .padding(12).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                     .allowsHitTesting(false)
             }
-            .onAppear { viewport = geo.size; if let initialSelection, selectedNode == nil { selectedNode = initialSelection } }
-            .onChange(of: geo.size) { _, size in viewport = size }
+            if hasSelection {
+                Rectangle().fill(Theme.border).frame(width: 1)
+                ScrollView { inspectorContent }
+                    .frame(width: 300)
+                    .background(Theme.card)
+                    .transition(.move(edge: .trailing))
+            }
         }
+        .onAppear {
+            if let initialSelection, selectedNode == nil { selectedNode = initialSelection }
+            installKeys()
+        }
+        .onDisappear(perform: removeKeys)
         .onChange(of: store.workspace.diagrams.first { $0.id == diagram.id }) { _, stored in
             if let stored, dragOffset.isEmpty, linking == nil, groupDrag == nil, groupResize == nil, stored != diagram {
                 // Changed elsewhere, e.g. by Undo: show it, and drop anything selected that no longer exists.
@@ -117,7 +117,6 @@ struct DiagramEditor: View {
                 if let id = selectedGroup, !stored.groups.contains(where: { $0.id == id }) { selectedGroup = nil }
             }
         }
-        .onDeleteCommand(perform: deleteSelection)
         .onAppear(perform: refreshUndo)
         .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidCloseUndoGroup)) { _ in refreshUndo() }
         .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidUndoChange)) { _ in refreshUndo() }
@@ -140,8 +139,12 @@ struct DiagramEditor: View {
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2) { location in addNode(kind: .step, at: location, edit: true) }
                 .onTapGesture { clearSelection() }
-            ForEach(diagram.groups) { group in groupView(group) }
+                .gesture(DragGesture(minimumDistance: 3)
+                    .onChanged { _ in viewport.pan(to: NSEvent.mouseLocation) }
+                    .onEnded { _ in viewport.endPan() })
+            // Lines go under groups so a group's name tag is never crossed out; the fill is translucent, so lines still show.
             edgeLayer
+            ForEach(diagram.groups) { group in groupView(group) }
             ForEach(diagram.edges) { edge in edgeHandle(edge) }
             ForEach(diagram.nodes) { node in
                 DiagramNodeView(node: node, info: info(node), selected: selectedNode == node.id, editing: editingNode == node.id,
@@ -149,7 +152,10 @@ struct DiagramEditor: View {
                                 onSelect: { selectNode(node.id) },
                                 onOpen: { open(node) },
                                 onCommit: { editingNode = nil; save() },
-                                onDrag: { dragOffset[node.id] = $0 },
+                                onDrag: { translation in
+                                    if dragOffset[node.id] == nil { selectNode(node.id) }
+                                    dragOffset[node.id] = translation
+                                },
                                 onDragEnd: { finishDrag(node, $0) },
                                 onLink: { linking = (node.id, $0) },
                                 onLinkEnd: { finishLink(from: node.id, at: $0) })
@@ -169,8 +175,15 @@ struct DiagramEditor: View {
 
     func rect(_ node: DiagramNode) -> CGRect { DiagramLayout.rect(of: node, offset: offset(of: node.id)) }
 
-    func clearSelection() { selectedNode = nil; selectedEdge = nil; selectedGroup = nil; editingNode = nil }
-    func selectNode(_ id: UUID) { selectedNode = id; selectedEdge = nil; selectedGroup = nil }
+    func clearSelection() {
+        if editingNode != nil { editingNode = nil; save() }
+        selectedNode = nil; selectedEdge = nil; selectedGroup = nil
+    }
+    func selectNode(_ id: UUID) {
+        // Selecting another box finishes renaming the previous one.
+        if let editing = editingNode, editing != id { editingNode = nil; save() }
+        selectedNode = id; selectedEdge = nil; selectedGroup = nil
+    }
     func selectGroup(_ id: UUID) { selectedGroup = id; selectedNode = nil; selectedEdge = nil; editingNode = nil }
 
     // MARK: Groups
@@ -377,10 +390,11 @@ struct DiagramEditor: View {
             IconButton(icon: "arrow.uturn.forward", help: "Redo (⇧⌘Z)", size: 26, tint: canRedo ? Theme.ink2 : Theme.ink3.opacity(0.5)) { undoManager?.redo() }
                 .disabled(!canRedo)
             divider
-            IconButton(icon: "minus", help: "Zoom out", size: 26) { zoom = max(0.5, zoom - 0.1) }
-            Text("\(Int((zoom * 100).rounded()))%").font(.system(size: 12, weight: .medium).monospacedDigit()).foregroundStyle(Theme.ink2).frame(width: 40)
-                .onTapGesture { zoom = 1 }.help("Click to reset to 100%")
-            IconButton(icon: "plus", help: "Zoom in", size: 26) { zoom = min(1.6, zoom + 0.1) }
+            IconButton(icon: "minus", help: "Zoom out (⌘−)", size: 26) { viewport.zoomOut() }
+            Text("\(Int((viewport.zoom * 100).rounded()))%").font(.system(size: 12, weight: .medium).monospacedDigit()).foregroundStyle(Theme.ink2).frame(width: 40)
+                .contentShape(Rectangle()).onTapGesture { viewport.setZoom(1) }.help("Click to show at 100%")
+            IconButton(icon: "plus", help: "Zoom in (⌘+)", size: 26) { viewport.zoomIn() }
+            IconButton(icon: "arrow.up.left.and.down.right.magnifyingglass", help: "Fit the whole map on screen (⌘0)", size: 26) { fitToContent() }
         }
         .padding(6)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
@@ -391,22 +405,14 @@ struct DiagramEditor: View {
     var divider: some View { Rectangle().fill(Theme.border).frame(width: 1, height: 20).padding(.horizontal, 3) }
 
     /// The middle of what's currently visible, in canvas coordinates.
-    var visibleCenter: CGPoint {
-        CGPoint(x: (-scrollOrigin.x + viewport.width / 2) / zoom, y: (-scrollOrigin.y + viewport.height / 2) / zoom)
+    var visibleCenter: CGPoint { viewport.visibleCenter }
+
+    func fitToContent() {
+        if let bounds = DiagramLayout.contentBounds(diagram) { viewport.fit(bounds) }
+        else { viewport.setZoom(1); viewport.center(on: CGPoint(x: 640, y: 380)) }
     }
 
     // MARK: Inspector
-
-    /// Sized to its content, scrolling only when that's taller than the window.
-    var inspector: some View {
-        ViewThatFits(in: .vertical) {
-            inspectorContent
-            ScrollView { inspectorContent }
-        }
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.border))
-        .shadow(color: .black.opacity(0.12), radius: 14, y: 5)
-    }
 
     var inspectorContent: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -628,12 +634,7 @@ struct DiagramEditor: View {
                 ForEach(targets) { target in Button(info(target).title.ifEmpty("Untitled")) { connect(node.id, target.id) } }
             }
         }
-        Button("Duplicate") {
-            var copy = node; copy.id = UUID()
-            let spot = DiagramLayout.freeSpot(near: CGPoint(x: node.x + 40, y: node.y + 80), in: diagram)
-            copy.x = spot.x; copy.y = spot.y
-            diagram.nodes.append(copy); selectNode(copy.id); save()
-        }
+        Button("Duplicate") { duplicate(node.id) }
         Button("Put in a New Group") { addGroup(around: [node], at: CGPoint(x: node.x, y: node.y)) }
         Divider()
         Button("Delete", role: .destructive) { selectNode(node.id); deleteSelection() }
@@ -700,6 +701,75 @@ struct DiagramEditor: View {
         diagram.edges.append(edge)
         selectedEdge = edge.id; selectedNode = nil; selectedGroup = nil
         save()
+    }
+
+    func duplicate(_ id: UUID) {
+        guard var copy = diagram.nodes.first(where: { $0.id == id }) else { return }
+        copy.id = UUID()
+        let spot = DiagramLayout.freeSpot(near: CGPoint(x: copy.x + 40, y: copy.y + 80), in: diagram)
+        copy.x = spot.x; copy.y = spot.y
+        diagram.nodes.append(copy); selectNode(copy.id); save()
+    }
+
+    /// Moves the selected box, or the selected group with everything in it.
+    func nudge(dx: Double, dy: Double) {
+        if let id = selectedNode, let index = diagram.nodes.firstIndex(where: { $0.id == id }) {
+            let point = DiagramLayout.clamp(CGPoint(x: diagram.nodes[index].x + dx, y: diagram.nodes[index].y + dy))
+            diagram.nodes[index].x = point.x; diagram.nodes[index].y = point.y
+            save()
+        } else if let id = selectedGroup, let group = diagram.groups.first(where: { $0.id == id }) {
+            groupDrag = (id, .zero, DiagramLayout.members(of: group, in: diagram))
+            finishGroupDrag(id, CGSize(width: dx, height: dy))
+        }
+    }
+
+    // MARK: Keyboard
+
+    func installKeys() {
+        removeKeys()
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in handleKey(event) ? nil : event }
+    }
+
+    func removeKeys() {
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        keyMonitor = nil
+    }
+
+    /// Delete, Escape, arrows, ⌘D, and zoom. Keys typed into a text field are left alone.
+    func handleKey(_ event: NSEvent) -> Bool {
+        guard let window = viewport.window, event.window === window, window.attachedSheet == nil else { return false }
+        let typing = window.firstResponder is NSText
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if event.keyCode == 53 { // Escape
+            if editingNode != nil { window.makeFirstResponder(nil); clearSelection(); return true }
+            if typing { return false }
+            if hasSelection { clearSelection(); return true }
+            return false
+        }
+        guard !typing else { return false }
+        if flags.contains(.command) {
+            switch event.charactersIgnoringModifiers {
+            case "=", "+": viewport.zoomIn(); return true
+            case "-": viewport.zoomOut(); return true
+            case "0": fitToContent(); return true
+            case "d": if let id = selectedNode { duplicate(id); return true }; return false
+            default: return false
+            }
+        }
+        let step: Double = flags.contains(.shift) ? 50 : 10
+        switch event.keyCode {
+        case 51, 117: // Delete, forward delete
+            guard hasSelection else { return false }
+            deleteSelection(); return true
+        case 123: guard selectedNode != nil || selectedGroup != nil else { return false }; nudge(dx: -step, dy: 0); return true
+        case 124: guard selectedNode != nil || selectedGroup != nil else { return false }; nudge(dx: step, dy: 0); return true
+        case 125: guard selectedNode != nil || selectedGroup != nil else { return false }; nudge(dx: 0, dy: step); return true
+        case 126: guard selectedNode != nil || selectedGroup != nil else { return false }; nudge(dx: 0, dy: -step); return true
+        case 36: // Return renames the selected plain box
+            guard let id = selectedNode, diagram.nodes.first(where: { $0.id == id })?.entryID == nil else { return false }
+            editingNode = id; return true
+        default: return false
+        }
     }
 
     func deleteSelection() {
@@ -829,7 +899,7 @@ struct DiagramNodeView: View {
             .simultaneousGesture(TapGesture().onEnded { onSelect() })
             .onTapGesture(count: 2) { onOpen() }
             .gesture(DragGesture(minimumDistance: 3, coordinateSpace: .named("canvas"))
-                .onChanged { onSelect(); onDrag($0.translation) }
+                .onChanged { onDrag($0.translation) }
                 .onEnded { onDragEnd($0.translation) })
             .onChange(of: editing) { _, on in focused = on }
             .onAppear { if editing { DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { focused = true } } }
@@ -844,7 +914,7 @@ struct DiagramNodeView: View {
                     Text(label.isEmpty ? "Sticky note" : label).foregroundStyle(label.isEmpty ? Theme.ink3 : Theme.ink)
                 }
             }
-            .font(.system(size: 12.5)).lineLimit(5).multilineTextAlignment(.leading)
+            .font(.system(size: 12.5)).multilineTextAlignment(.leading)
             .padding(11).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } else {
             HStack(spacing: 10) {

@@ -2,9 +2,9 @@
 
 # Context
 
-**Pick up any project after weeks away, in seconds.**
+**Every project at a glance: a map, its links, and what's next.**
 
-A free, native Mac app that keeps everything around your projects in one place: the links, logins, notes, files, tasks, and how it all connects.
+A free, minimal Mac app. Map how each project fits together, keep its dashboards and accounts one click away, and keep its reminders in Apple Reminders.
 No account, no server, no subscription. Your data stays on your Mac.
 
 [![Download for macOS](https://img.shields.io/badge/Download-macOS%2014%2B-2f7d5b?logo=apple&logoColor=white)](../../releases/latest)
@@ -20,34 +20,31 @@ No account, no server, no subscription. Your data stays on your Mac.
 
 ## Why
 
-You come back to a side project, a client job, or your own product after 20 days and spend the first hour rebuilding it from memory. Which Vercel account was it? Where's the Figma file? What was I about to do next? Which ChatGPT thread had the pricing idea?
+You come back to a side project, a client job, or your own product after 20 days and spend the first hour rebuilding it from memory. Which Vercel account was it? Where does the database live? What was I about to do next?
 
-Context remembers that for you. Each project gets one page with its links, notes, folders, next steps, and a short "where things stand" note to your future self.
+Context keeps the answer on one page per project, with three tabs:
+
+| Tab | What it's for |
+| --- | --- |
+| **Map** | A diagram of the people, apps, and services behind the project and how they connect. Click any box for its notes and details. |
+| **Links** | Every dashboard, repo, social account, doc, and AI chat, with real logos (100+ brands). One click opens it. |
+| **Reminders** | What's next, kept in the project's own list in Apple Reminders, so it reaches your iPhone too. |
 
 ## Features
 
-- **⌘K to open anything.** Type "neon", "vrcl", or "gc" for Google Cloud and press Return to open the link. It also works from any app with ⌃⌥Space and from the menu bar. The links you use most rise to the top.
-- **One page per project**, with six tabs you can rename, reorder, or hide:
-
-  | Tab | What it's for |
-  | --- | --- |
-  | Overview | "Where things stand", quick-link tiles, recent notes, folders, and next steps. After a week away it says welcome back. |
-  | Tasks | To-dos with due dates, repeats, reminders, and snooze, plus social posts ticked off per platform. |
-  | Links | Services, social accounts, repos, websites, docs, and AI chats, with their real logos (100+ brands). |
-  | Map | A diagram of how the project's people, apps, and services connect. It can be built from your links in one click. |
-  | Files | Your existing folders, browsed in place with previews. Markdown files (READMEs, docs, plans) open right inside Context as formatted documents. Nothing is copied, moved, edited, or deleted. |
-  | Notes | Markdown notes and reusable prompts with tables, checklists, code blocks with Copy, and autosave. |
-
-- **Passwords go in the macOS Keychain**, not in Context's data. Revealing one needs Touch ID, and a copied password clears from the clipboard after 45 seconds.
-- **Optional app lock.** Require Touch ID or your Mac password to open Context, with auto-lock when you step away (⚙ → Require Touch ID to Open).
+- **A map you'll actually use.** Pinch to zoom, drag empty space to move around, and the map opens fitted to the screen. Group boxes into labelled frames, keep notes on any box, and undo anything with ⌘Z.
+- **⌘K to open anything.** Type "neon", "vrcl", or "gc" for Google Cloud and press Return. It also works from any app with ⌃⌥Space and from the menu bar.
+- **Reminders that sync.** Type "Renew domain next friday" or "Call Riya tomorrow 5pm" and the date is picked up as you type. Each project gets its own list in Apple Reminders, so reminders notify you on your Mac, iPhone, and Watch.
+- **Project pictures.** Give each project its logo or a photo: click the project's icon, or drop an image on it.
+- **Light and dark.** Follow the Mac, or pick one with the ☀︎/☾ button in the sidebar.
+- **Passwords in the Keychain**, never in Context's data. Revealing one needs Touch ID, and a copied password clears from the clipboard after 45 seconds.
+- **Optional app lock** with Touch ID or your Mac password, and auto-lock when you step away.
 - **Backup to iCloud Drive, Google Drive, Dropbox, or OneDrive** through their Mac apps. Context writes a dated copy after each change and keeps 30 days.
-- **Clients**: group several projects under one client and see all their pending work together.
-- **Light and dark mode**, keyboard-first, with zero third-party dependencies.
 
 <table>
-<tr><td><img src="docs/screenshots/10-overview.png" alt="Project overview"></td><td><img src="docs/screenshots/12-links.png" alt="Links"></td></tr>
-<tr><td><img src="docs/screenshots/13-map-linked.png" alt="Map with a box selected, showing its details and notes"></td><td><img src="docs/screenshots/14-notes.png" alt="Notes"></td></tr>
-<tr><td><img src="docs/screenshots/02-launcher.png" alt="⌘K launcher"></td><td><img src="docs/screenshots/01-home-dark.png" alt="Dark mode"></td></tr>
+<tr><td><img src="docs/screenshots/10-map.png" alt="Map"></td><td><img src="docs/screenshots/11-map-linked.png" alt="A map box selected, showing its details and notes"></td></tr>
+<tr><td><img src="docs/screenshots/12-links.png" alt="Links"></td><td><img src="docs/screenshots/13-reminders.png" alt="Reminders synced with Apple Reminders"></td></tr>
+<tr><td><img src="docs/screenshots/02-launcher.png" alt="⌘K launcher"></td><td><img src="docs/screenshots/10-map-dark.png" alt="Dark mode"></td></tr>
 </table>
 
 ## Install
@@ -70,13 +67,17 @@ zsh scripts/build-app.sh --install   # builds, copies to /Applications, and open
 
 ## Map
 
-- **Start a map:** "Build from my links" lays out the project for you, or you can start blank.
-- **Box types:** Person, App, API, Database, Storage, Cloud, Email, Payment, Step, and sticky notes. A box linked to a saved link shows that link's logo and follows its renames. If the link is deleted, the box is flagged.
-- **Details on one click:** click a box to see its notes, URL, account, environment, and connections. Plain boxes have their own notes; boxes with notes show a small ≡ marker, and hovering previews them.
-- **Groups:** Add → Group draws a labelled frame. Drag boxes in, drag the name tag to move the group with everything inside, and drag the corner to resize. Right-click a box → Put in a New Group to frame it.
-- **Connect boxes:** drag a box's ● handle onto another box. Click a connection to label it, dash it, reverse it, or delete it.
-- **Edit:** double-click empty space to add a box and double-click a box to rename it.
-- **Undo:** made a mistake? Press **⌘Z** or the ↶ button to step back, and **⇧⌘Z** to redo. Moves, deletions, renames, connections, and groups can all be undone.
+- **Move around:** drag empty space, scroll with two fingers, pinch (or ⌘-scroll) to zoom, and press ⌘0 to fit the whole map.
+- **Start a map:** "Build from my links" lays out the project for you, or start blank.
+- **Boxes:** Person, App, API, Database, Storage, Cloud, Email, Payment, Step, and sticky notes. A box linked to a saved link shows its logo and follows its renames; if the link is deleted, the box is flagged.
+- **Details on one click:** the panel on the right shows a box's notes, URL, account, environment, and connections. Boxes with notes show a small ≡ marker.
+- **Groups:** Add → Group draws a labelled frame. Drag boxes in, drag the name tag to move the group with everything inside, and drag the corner to resize.
+- **Connect:** drag a box's ● handle onto another box. Click a connection to label it, dash it, reverse it, or delete it.
+- **Keys:** Delete removes the selection, arrows nudge it (⇧ for bigger steps), Return renames, ⌘D duplicates, Esc deselects, ⌘Z / ⇧⌘Z undo and redo.
+
+## Reminders
+
+The first time you open a project's Reminders tab, click **Connect Apple Reminders** and allow access. Your first reminder in a project creates a list with the project's name in Apple Reminders (or uses an existing list with that name; you can pick another list at the bottom of the tab). Context doesn't keep its own copy: Apple Reminders is the only place your reminders live, so they sync through iCloud as usual.
 
 ## Keyboard shortcuts
 
@@ -84,13 +85,10 @@ zsh scripts/build-app.sh --install   # builds, copies to /Applications, and open
 | --- | --- |
 | ⌘K | Search and jump to anything |
 | ⌃⌥Space | Same, from any app |
-| ⌘N | New note in the current project |
-| ⌘T | New task |
+| ⌘1 · ⌘2 · ⌘3 | Map · Links · Reminders |
+| ⇧⌘H | Home |
+| ⌘N | New link in the current project |
 | ⇧⌘N | New project |
-| ⌘1 | Home |
-| ⌘E | Read / edit the current note |
-| ⌘B · ⌘I | Bold · italic while editing |
-| ⌘F | Find inside a note while editing |
 | ⇧⌘B | Back up now |
 | ⇧⌘E | Export a backup file |
 | ⌃⌘L | Lock Context (when the app lock is on) |
@@ -109,12 +107,12 @@ Context has no telemetry, no analytics, and no sync service of its own. Its only
 
 These files are readable only by your Mac account but are not encrypted, so keep passwords in a link's Keychain credentials rather than in notes. The optional app lock keeps Context's windows, launcher, and menu bar panel closed until you unlock; it does not encrypt the files on disk.
 
-Backups include projects, links, notes, prompts, tasks, posts, and maps. They don't include the files in connected folders, which stay where they are, or Keychain passwords. Restoring always asks first and keeps a copy of your current data.
+Backups include projects (with their pictures), maps, and links. Keychain passwords aren't included, and reminders live in Apple Reminders. Restoring always asks first and keeps a copy of your current data.
 
 ## Development
 
 ```sh
-zsh scripts/test.sh        # data, recurrence, migration, Markdown, map layout, launcher, backup, and brand-icon tests
+zsh scripts/test.sh        # data, migration, map layout, reminders, pictures, launcher, backup, and brand-icon tests
 zsh scripts/build-app.sh   # builds dist/Context.app
 zsh scripts/snapshot.sh    # renders every screen with demo data (never your data) to .build/snapshots/
 ```
