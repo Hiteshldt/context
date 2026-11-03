@@ -147,8 +147,10 @@ MainActor.assumeIsolated {
         snap(DiagramEditor(diagram: map, others: [map], select: { _ in }, create: { _ in }, initialSelection: vercel)
                 .environmentObject(store).environment(\.pageTint, Theme.color("sage")),
              size: CGSize(width: 1300, height: 820), to: "\(out)/11-map-linked.png")
+        snap(DiagramEditor(diagram: map, others: [map], select: { _ in }, create: { _ in }, initiallyShowLinks: true)
+                .environmentObject(store).environment(\.pageTint, Theme.color("sage")),
+             size: CGSize(width: 1300, height: 820), to: "\(out)/12-links.png")
     }
-    store.lastSection[id] = .links; page(.project(id), "12-links")
     store.lastSection[id] = .reminders; page(.project(id), "13-reminders")
     page(.project(id), "13-reminders-dark", dark: true)
     snap(BackupView().environmentObject(store).environmentObject(backup), size: CGSize(width: 640, height: 700), to: "\(out)/20-backup.png")

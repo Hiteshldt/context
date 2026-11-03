@@ -116,9 +116,9 @@ struct ContentView: View {
         case .entry(let id):
             guard let entry = store.entry(id) else { return }
             if alternate || webURL(entry.url) == nil {
-                store.lastSection[entry.projectID] = .links
+                store.lastSection[entry.projectID] = .map
                 route = .project(entry.projectID)
-                if webURL(entry.url) == nil { sheet = .entry(entry) }
+                sheet = .entry(entry)
             } else {
                 store.open(entry)
             }

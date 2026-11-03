@@ -75,27 +75,204 @@ enum DiagramLayout {
         CGPoint(x: min(max(110, point.x), canvas.width - 110), y: min(max(50, point.y), canvas.height - 70))
     }
 
-    /// A smooth connector between two node rectangles: leaves and enters on the sides that face each other.
-    static func connector(from a: CGRect, to b: CGRect) -> (start: CGPoint, c1: CGPoint, c2: CGPoint, end: CGPoint) {
-        let dx = b.midX - a.midX, dy = b.midY - a.midY
-        let gap: CGFloat = 5
-        if abs(dx) >= abs(dy) * 0.9 {
-            let right = dx >= 0
-            let start = CGPoint(x: right ? a.maxX : a.minX, y: a.midY)
-            let end = CGPoint(x: right ? b.minX - gap : b.maxX + gap, y: b.midY)
-            let bend = max(36, abs(end.x - start.x) * 0.5) * (right ? 1 : -1)
-            return (start, CGPoint(x: start.x + bend, y: start.y), CGPoint(x: end.x - bend, y: end.y), end)
+    // MARK: Connections
+
+    enum Side: Equatable {
+        case top, right, bottom, left
+        var isHorizontal: Bool { self == .left || self == .right }
+        /// Pointing out of the box.
+        var normal: CGVector {
+            switch self {
+            case .top: return CGVector(dx: 0, dy: -1)
+            case .bottom: return CGVector(dx: 0, dy: 1)
+            case .left: return CGVector(dx: -1, dy: 0)
+            case .right: return CGVector(dx: 1, dy: 0)
+            }
         }
-        let down = dy >= 0
-        let start = CGPoint(x: a.midX, y: down ? a.maxY : a.minY)
-        let end = CGPoint(x: b.midX, y: down ? b.minY - gap : b.maxY + gap)
-        let bend = max(30, abs(end.y - start.y) * 0.5) * (down ? 1 : -1)
-        return (start, CGPoint(x: start.x, y: start.y + bend), CGPoint(x: end.x, y: end.y - bend), end)
     }
 
-    static func midpoint(_ c: (start: CGPoint, c1: CGPoint, c2: CGPoint, end: CGPoint)) -> CGPoint {
-        // Cubic Bézier at t = 0.5.
-        CGPoint(x: (c.start.x + 3 * c.c1.x + 3 * c.c2.x + c.end.x) / 8, y: (c.start.y + 3 * c.c1.y + 3 * c.c2.y + c.end.y) / 8)
+    /// A connection's drawn shape. `points` are the corners of an elbow or straight line,
+    /// or the start, two control points, and end of a curve.
+    struct Route: Equatable {
+        var points: [CGPoint]
+        var style: LineStyle
+        var startSide: Side
+        var endSide: Side
+        var start: CGPoint { points[0] }
+        var end: CGPoint { points[points.count - 1] }
+        /// Where a label sits: halfway along the line.
+        var labelPoint: CGPoint
+        /// The direction the arrowhead points, into the target box.
+        var arrow: CGVector
+    }
+
+    /// Which sides two boxes connect on. Boxes side by side join left-to-right; stacked boxes join top-to-bottom;
+    /// diagonal boxes leave sideways and enter the target from above or below (or the reverse when they're far apart sideways).
+    static func sides(from a: CGRect, to b: CGRect) -> (Side, Side) {
+        let clearance = 24.0
+        let hGap = max(b.minX - a.maxX, a.minX - b.maxX)
+        let vGap = max(b.minY - a.maxY, a.minY - b.maxY)
+        let horizontal: (Side, Side) = b.midX >= a.midX ? (.right, .left) : (.left, .right)
+        let vertical: (Side, Side) = b.midY >= a.midY ? (.bottom, .top) : (.top, .bottom)
+        switch (hGap >= clearance, vGap >= clearance) {
+        case (true, false): return horizontal
+        case (false, true): return vertical
+        case (true, true): return vGap >= hGap ? (horizontal.0, vertical.1) : (vertical.0, horizontal.1)
+        case (false, false): return abs(b.midX - a.midX) >= abs(b.midY - a.midY) ? horizontal : vertical
+        }
+    }
+
+    /// The sides to connect on, trying the other ways of joining the two boxes when the usual one
+    /// would run through another box (or back through one of the two).
+    static func sides(from a: CGRect, to b: CGRect, style: LineStyle, avoiding others: [CGRect]) -> (Side, Side) {
+        let preferred = sides(from: a, to: b)
+        let horizontal: (Side, Side) = b.midX >= a.midX ? (.right, .left) : (.left, .right)
+        let vertical: (Side, Side) = b.midY >= a.midY ? (.bottom, .top) : (.top, .bottom)
+        let obstacles = others + [a.insetBy(dx: 1, dy: 1), b.insetBy(dx: 1, dy: 1)]
+        func clear(_ pair: (Side, Side)) -> Bool {
+            let line = polyline(route(from: a, pair.0, to: b, pair.1, style: style))
+            return !zip(line, line.dropFirst()).contains { p, q in obstacles.contains { segment(p, q, crosses: $0) } }
+        }
+        if clear(preferred) { return preferred }
+        return [(horizontal.0, vertical.1), (vertical.0, horizontal.1), horizontal, vertical].first(where: clear) ?? preferred
+    }
+
+    /// A route as straight segments: its corners, or a curve sampled finely enough to test against boxes.
+    static func polyline(_ route: Route) -> [CGPoint] {
+        guard route.style == .curved else { return route.points }
+        let p = route.points
+        return (0...16).map { step in
+            let t = Double(step) / 16, u = 1 - t
+            let a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, d = t * t * t
+            return CGPoint(x: a * p[0].x + b * p[1].x + c * p[2].x + d * p[3].x, y: a * p[0].y + b * p[1].y + c * p[2].y + d * p[3].y)
+        }
+    }
+
+    /// Whether the segment from p to q passes through the rectangle (Liang–Barsky clipping).
+    static func segment(_ p: CGPoint, _ q: CGPoint, crosses r: CGRect) -> Bool {
+        let dx = q.x - p.x, dy = q.y - p.y
+        var enter = 0.0, exit = 1.0
+        for (direction, distance) in [(-dx, p.x - r.minX), (dx, r.maxX - p.x), (-dy, p.y - r.minY), (dy, r.maxY - p.y)] {
+            if direction == 0 {
+                if distance < 0 { return false }
+            } else {
+                let t = distance / direction
+                if direction < 0 { enter = max(enter, t) } else { exit = min(exit, t) }
+                if enter > exit { return false }
+            }
+        }
+        return true
+    }
+
+    /// A point on a side, `offset` points from its middle.
+    static func port(_ rect: CGRect, _ side: Side, offset: Double = 0) -> CGPoint {
+        switch side {
+        case .top: return CGPoint(x: rect.midX + offset, y: rect.minY)
+        case .bottom: return CGPoint(x: rect.midX + offset, y: rect.maxY)
+        case .left: return CGPoint(x: rect.minX, y: rect.midY + offset)
+        case .right: return CGPoint(x: rect.maxX, y: rect.midY + offset)
+        }
+    }
+
+    static func route(from a: CGRect, _ startSide: Side, offset startOffset: Double = 0,
+                      to b: CGRect, _ endSide: Side, offset endOffset: Double = 0, style: LineStyle) -> Route {
+        let start = port(a, startSide, offset: startOffset), end = port(b, endSide, offset: endOffset)
+        let inward = CGVector(dx: -endSide.normal.dx, dy: -endSide.normal.dy)
+        switch style {
+        case .straight:
+            let length = max(hypot(end.x - start.x, end.y - start.y), 0.001)
+            return Route(points: [start, end], style: style, startSide: startSide, endSide: endSide,
+                         labelPoint: CGPoint(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2),
+                         arrow: CGVector(dx: (end.x - start.x) / length, dy: (end.y - start.y) / length))
+        case .curved:
+            let reach = max(36, hypot(end.x - start.x, end.y - start.y) * 0.4)
+            let c1 = CGPoint(x: start.x + startSide.normal.dx * reach, y: start.y + startSide.normal.dy * reach)
+            let c2 = CGPoint(x: end.x + endSide.normal.dx * reach, y: end.y + endSide.normal.dy * reach)
+            let mid = CGPoint(x: (start.x + 3 * c1.x + 3 * c2.x + end.x) / 8, y: (start.y + 3 * c1.y + 3 * c2.y + end.y) / 8)
+            return Route(points: [start, c1, c2, end], style: style, startSide: startSide, endSide: endSide, labelPoint: mid, arrow: inward)
+        case .elbow:
+            var points = [start]
+            switch (startSide.isHorizontal, endSide.isHorizontal) {
+            case (true, true):
+                if abs(start.y - end.y) > 0.5 {
+                    let x = (start.x + end.x) / 2
+                    points += [CGPoint(x: x, y: start.y), CGPoint(x: x, y: end.y)]
+                }
+            case (false, false):
+                if abs(start.x - end.x) > 0.5 {
+                    let y = (start.y + end.y) / 2
+                    points += [CGPoint(x: start.x, y: y), CGPoint(x: end.x, y: y)]
+                }
+            case (true, false): points.append(CGPoint(x: end.x, y: start.y))
+            case (false, true): points.append(CGPoint(x: start.x, y: end.y))
+            }
+            points.append(end)
+            return Route(points: points, style: style, startSide: startSide, endSide: endSide, labelPoint: halfway(points), arrow: inward)
+        }
+    }
+
+    /// The point halfway along a polyline.
+    static func halfway(_ points: [CGPoint]) -> CGPoint {
+        let lengths = zip(points, points.dropFirst()).map { hypot($1.x - $0.x, $1.y - $0.y) }
+        var remaining = lengths.reduce(0, +) / 2
+        for (index, length) in lengths.enumerated() {
+            if remaining <= length, length > 0 {
+                let a = points[index], b = points[index + 1], t = remaining / length
+                return CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t)
+            }
+            remaining -= length
+        }
+        return points.last ?? .zero
+    }
+
+    /// Routes for every connection. Where several lines meet the same side of a box they're spread out along it,
+    /// ordered to avoid crossing, instead of piling onto one point.
+    static func routes(for diagram: Diagram, rects: [UUID: CGRect]) -> [UUID: Route] {
+        struct End { let edge: UUID; let isStart: Bool; let node: UUID; let side: Side; let other: CGPoint }
+        var sides: [UUID: (Side, Side)] = [:]
+        var ends: [End] = []
+        for edge in diagram.edges where edge.from != edge.to {
+            guard let a = rects[edge.from], let b = rects[edge.to] else { continue }
+            let others = rects.filter { $0.key != edge.from && $0.key != edge.to }.map(\.value)
+            let pair = Self.sides(from: a, to: b, style: diagram.lineStyle, avoiding: others)
+            sides[edge.id] = pair
+            ends.append(End(edge: edge.id, isStart: true, node: edge.from, side: pair.0, other: CGPoint(x: b.midX, y: b.midY)))
+            ends.append(End(edge: edge.id, isStart: false, node: edge.to, side: pair.1, other: CGPoint(x: a.midX, y: a.midY)))
+        }
+        var offsets: [String: Double] = [:]
+        for group in Dictionary(grouping: ends, by: { "\($0.node)-\($0.side)" }).values where group.count > 1 {
+            guard let rect = rects[group[0].node] else { continue }
+            let horizontalSide = !group[0].side.isHorizontal
+            let length = horizontalSide ? rect.width : rect.height
+            let spacing = min(26, (length - 28) / Double(group.count - 1))
+            let sorted = group.sorted { horizontalSide ? $0.other.x < $1.other.x : $0.other.y < $1.other.y }
+            for (index, end) in sorted.enumerated() {
+                offsets["\(end.edge)-\(end.isStart)"] = (Double(index) - Double(group.count - 1) / 2) * spacing
+            }
+        }
+        var result: [UUID: Route] = [:]
+        for edge in diagram.edges {
+            guard let pair = sides[edge.id], let a = rects[edge.from], let b = rects[edge.to] else { continue }
+            result[edge.id] = route(from: a, pair.0, offset: offsets["\(edge.id)-true"] ?? 0,
+                                    to: b, pair.1, offset: offsets["\(edge.id)-false"] ?? 0, style: diagram.lineStyle)
+        }
+        return result
+    }
+
+    // MARK: Snapping
+
+    /// Where a dragged box should land: lined up with another box's centre when it's within a few points of it
+    /// (returning the guides to draw), otherwise on the grid.
+    static func snap(_ point: CGPoint, for id: UUID, among others: [DiagramNode], threshold: Double = 7) -> (point: CGPoint, guideX: Double?, guideY: Double?) {
+        var x = snap(point.x), y = snap(point.y)
+        var guideX: Double?, guideY: Double?
+        if let match = others.filter({ $0.id != id }).map(\.x).min(by: { abs($0 - point.x) < abs($1 - point.x) }), abs(match - point.x) <= threshold {
+            x = match; guideX = match
+        }
+        if let match = others.filter({ $0.id != id }).map(\.y).min(by: { abs($0 - point.y) < abs($1 - point.y) }), abs(match - point.y) <= threshold {
+            y = match; guideY = match
+        }
+        return (CGPoint(x: x, y: y), guideX, guideY)
     }
 
     /// Arranges nodes in columns that follow the arrows, left to right. Unconnected nodes go in a row underneath.

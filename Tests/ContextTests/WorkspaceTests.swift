@@ -286,6 +286,100 @@ final class WorkspaceTests {
         let map = try JSONDecoder().decode(Diagram.self, from: Data(#"{"id":"\#(UUID())","projectID":"\#(UUID())","title":"Old","nodes":[],"edges":[],"updatedAt":0}"#.utf8))
         XCTAssertEqual(map.title, "Old")
         XCTAssertTrue(map.groups.isEmpty)
+        XCTAssertEqual(map.lineStyle, .elbow)
+        var curved = map
+        curved.lineStyle = .curved
+        XCTAssertEqual(try JSONDecoder().decode(Diagram.self, from: try JSONEncoder().encode(curved)).lineStyle, .curved)
+    }
+
+    func testMapConnectionsUseFacingSidesAndSpreadOut() {
+        // Side by side joins left-to-right; stacked joins top-to-bottom.
+        let left = CGRect(x: 0, y: 0, width: 100, height: 50), right = CGRect(x: 300, y: 0, width: 100, height: 50)
+        let across = DiagramLayout.sides(from: left, to: right)
+        XCTAssertEqual(across.0, .right)
+        XCTAssertEqual(across.1, .left)
+        let below = CGRect(x: 0, y: 200, width: 100, height: 50)
+        let down = DiagramLayout.sides(from: left, to: below)
+        XCTAssertEqual(down.0, .bottom)
+        XCTAssertEqual(down.1, .top)
+
+        let elbow = DiagramLayout.route(from: left, .right, to: right, .left, style: .elbow)
+        XCTAssertEqual(elbow.start, CGPoint(x: 100, y: 25))
+        XCTAssertEqual(elbow.end, CGPoint(x: 300, y: 25))
+        XCTAssertEqual(elbow.arrow, CGVector(dx: 1, dy: 0))
+        XCTAssertEqual(DiagramLayout.route(from: left, .right, to: right, .left, style: .straight).points.count, 2)
+        XCTAssertEqual(DiagramLayout.route(from: left, .right, to: right, .left, style: .curved).points.count, 4)
+        // An elbow between offset boxes turns at right angles, and its label sits halfway along.
+        let lower = CGRect(x: 300, y: 100, width: 100, height: 50)
+        let bent = DiagramLayout.route(from: left, .right, to: lower, .left, style: .elbow)
+        XCTAssertEqual(bent.points.count, 4)
+        XCTAssertTrue(zip(bent.points, bent.points.dropFirst()).allSatisfy { $0.x == $1.x || $0.y == $1.y })
+        XCTAssertEqual(bent.labelPoint, CGPoint(x: 200, y: 75))
+
+        // Two lines leaving the same side are spread apart, the upper one for the upper box, so they don't cross.
+        let a = DiagramNode(label: "A", x: 0, y: 0), b = DiagramNode(label: "B", x: 0, y: 0), c = DiagramNode(label: "C", x: 0, y: 0)
+        var map = Diagram(projectID: UUID())
+        map.nodes = [a, b, c]
+        let toB = DiagramEdge(from: a.id, to: b.id), toC = DiagramEdge(from: a.id, to: c.id)
+        map.edges = [toC, toB]
+        let rects = [a.id: CGRect(x: 0, y: 0, width: 200, height: 60),
+                     b.id: CGRect(x: 400, y: -20, width: 200, height: 60), c.id: CGRect(x: 400, y: 30, width: 200, height: 60)]
+        let routes = DiagramLayout.routes(for: map, rects: rects)
+        let upper = try! XCTUnwrap(routes[toB.id]), lowerRoute = try! XCTUnwrap(routes[toC.id])
+        XCTAssertEqual(upper.startSide, .right)
+        XCTAssertEqual(lowerRoute.startSide, .right)
+        XCTAssertTrue(upper.start.y < lowerRoute.start.y)
+        XCTAssertEqual(upper.start.x, 200)
+
+        // A line that would run under another box goes around it instead.
+        let source = CGRect(x: 0, y: 0, width: 200, height: 60), blocker = CGRect(x: 300, y: 0, width: 200, height: 60)
+        let target = CGRect(x: 300, y: 200, width: 200, height: 60)
+        let open = DiagramLayout.sides(from: source, to: target, style: .elbow, avoiding: [])
+        XCTAssertEqual(open.0, .right)
+        XCTAssertEqual(open.1, .top)
+        let around = DiagramLayout.sides(from: source, to: target, style: .elbow, avoiding: [blocker])
+        XCTAssertEqual(around.0, .bottom)
+        XCTAssertEqual(around.1, .left)
+        XCTAssertTrue(DiagramLayout.segment(CGPoint(x: 200, y: 30), CGPoint(x: 400, y: 30), crosses: blocker))
+        XCTAssertFalse(DiagramLayout.segment(CGPoint(x: 100, y: 60), CGPoint(x: 100, y: 230), crosses: blocker))
+        XCTAssertTrue(DiagramLayout.segment(CGPoint(x: 250, y: -50), CGPoint(x: 550, y: 110), crosses: blocker))
+    }
+
+    func testDraggedBoxesLineUpWithOthers() {
+        let other = DiagramNode(label: "API", x: 200, y: 500)
+        let near = DiagramLayout.snap(CGPoint(x: 204, y: 333), for: UUID(), among: [other])
+        XCTAssertEqual(near.point, CGPoint(x: 200, y: 330))
+        XCTAssertEqual(near.guideX, 200)
+        XCTAssertNil(near.guideY)
+        let far = DiagramLayout.snap(CGPoint(x: 264, y: 333), for: UUID(), among: [other])
+        XCTAssertEqual(far.point, CGPoint(x: 260, y: 330))
+        XCTAssertNil(far.guideX)
+        // A box never lines up with itself.
+        XCTAssertNil(DiagramLayout.snap(CGPoint(x: 204, y: 333), for: other.id, among: [other]).guideX)
+    }
+
+    func testPastedLinksGuessTheirKindAndName() {
+        let project = UUID()
+        let repo = try! XCTUnwrap(Entry.quick(url: "github.com/acme/web", projectID: project))
+        XCTAssertEqual(repo.kind, .repository)
+        XCTAssertEqual(repo.title, "web")
+        XCTAssertEqual(repo.url, "https://github.com/acme/web")
+        XCTAssertEqual(repo.projectID, project)
+        let neon = try! XCTUnwrap(Entry.quick(url: "  https://console.neon.tech/app  ", projectID: project))
+        XCTAssertEqual(neon.kind, .service)
+        XCTAssertEqual(neon.title, "Neon")
+        XCTAssertEqual(Entry.quick(url: "https://www.instagram.com/ayuvam", projectID: project)?.kind, .social)
+        XCTAssertEqual(Entry.quick(url: "https://claude.ai/chat/123", projectID: project)?.kind, .conversation)
+        XCTAssertEqual(Entry.quick(url: "https://docs.google.com/document/d/1", projectID: project)?.kind, .document)
+        let plain = try! XCTUnwrap(Entry.quick(url: "https://www.example.org/page", projectID: project))
+        XCTAssertEqual(plain.kind, .link)
+        XCTAssertEqual(plain.title, "example.org")
+        // Anything that isn't clearly a web address is a box name, not a link.
+        XCTAssertNil(Entry.quick(url: "", projectID: project))
+        XCTAssertNil(Entry.quick(url: "Orders database", projectID: project))
+        XCTAssertNil(Entry.quick(url: "backend", projectID: project))
+        XCTAssertNil(Entry.quick(url: "javascript:alert(1)", projectID: project))
+        XCTAssertNil(Entry.quick(url: "file:///etc/passwd", projectID: project))
     }
 
     func testMapGroups() throws {
@@ -332,11 +426,6 @@ final class WorkspaceTests {
         XCTAssertEqual(built.nodes.filter { $0.entryID != nil }.count, 3)
         let hub = built.nodes[0]
         XCTAssertTrue(built.nodes.dropFirst().allSatisfy { $0.x > hub.x })
-        // Connectors leave from the facing sides.
-        let left = CGRect(x: 0, y: 0, width: 100, height: 50), right = CGRect(x: 300, y: 0, width: 100, height: 50)
-        let c1 = DiagramLayout.connector(from: left, to: right)
-        XCTAssertEqual(c1.start, CGPoint(x: 100, y: 25))
-        XCTAssertTrue(c1.end.x < 300)
         let spot = DiagramLayout.freeSpot(near: CGPoint(x: tidy.nodes[0].x, y: tidy.nodes[0].y), in: tidy)
         XCTAssertFalse(tidy.nodes.contains { abs($0.x - spot.x) < 150 && abs($0.y - spot.y) < 60 })
     }
@@ -586,6 +675,9 @@ struct TestRunner {
             ("testMapNodesDecodeWithoutNewFields", { try tests.testMapNodesDecodeWithoutNewFields() }),
             ("testMapGroups", { try tests.testMapGroups() }),
             ("testMapTidyAndBuildFromLinks", { tests.testMapTidyAndBuildFromLinks() }),
+            ("testMapConnectionsUseFacingSidesAndSpreadOut", { tests.testMapConnectionsUseFacingSidesAndSpreadOut() }),
+            ("testDraggedBoxesLineUpWithOthers", { tests.testDraggedBoxesLineUpWithOthers() }),
+            ("testPastedLinksGuessTheirKindAndName", { tests.testPastedLinksGuessTheirKindAndName() }),
             ("testLauncherRanking", { tests.testLauncherRanking() }),
             ("testBackupWriterKeepsOneFilePerDayAndPrunes", { try tests.testBackupWriterKeepsOneFilePerDayAndPrunes() }),
             ("testCloudFolderDetection", { try tests.testCloudFolderDetection() }),

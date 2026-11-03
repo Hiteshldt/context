@@ -1,7 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// A project: a compact header, then its map, links, or reminders.
+/// A project: a compact header, then its map (with its links) or its reminders.
 struct ProjectView: View {
     @EnvironmentObject var store: Store
     @Environment(\.present) var present
@@ -20,7 +20,6 @@ struct ProjectView: View {
             Group {
                 switch tab {
                 case .map: DiagramSection(project: project)
-                case .links: LinksSection(project: project)
                 case .reminders: RemindersSection(project: project)
                 }
             }
@@ -113,7 +112,6 @@ struct ProjectView: View {
     func badge(_ tab: ProjectTab) -> Int? {
         switch tab {
         case .map: return nil
-        case .links: return store.workspace.entries.filter { $0.projectID == project.id && EntryKind.linkKinds.contains($0.kind) }.count
         case .reminders: return attention > 0 ? attention : reminders.items(for: project).filter { !$0.isCompleted }.count
         }
     }

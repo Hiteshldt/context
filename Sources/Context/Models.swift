@@ -11,14 +11,13 @@ enum ProjectStatus: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-/// The three areas of a project, in display order. The map comes first: it's the project at a glance.
+/// The two areas of a project. The map comes first: it's the project at a glance, links included.
 enum ProjectTab: String, CaseIterable, Identifiable {
-    case map = "Map", links = "Links", reminders = "Reminders"
+    case map = "Map", reminders = "Reminders"
     var id: String { rawValue }
     var icon: String {
         switch self {
         case .map: return "point.3.connected.trianglepath.dotted"
-        case .links: return "link"
         case .reminders: return "checklist"
         }
     }
@@ -187,6 +186,33 @@ enum EntryKind: String, Codable, CaseIterable, Identifiable {
     /// Display order for the combined Links section.
     static let linkKinds: [EntryKind] = [.service, .social, .repository, .link, .document, .conversation]
     static let noteKinds: [EntryKind] = [.note, .prompt]
+}
+
+extension Entry {
+    /// A link made from a pasted address, with its kind and name guessed from the site:
+    /// "github.com/acme/web" becomes the repository "web", "vercel.com/…" the service "Vercel".
+    static func quick(url text: String, projectID: UUID) -> Entry? {
+        var raw = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty, !raw.contains(" ") else { return nil }
+        if !raw.lowercased().hasPrefix("http://") && !raw.lowercased().hasPrefix("https://") {
+            // A bare domain like "vercel.com" or "github.com/acme/web".
+            guard raw.range(of: #"^[a-z0-9-]+(\.[a-z0-9-]+)+(/.*)?$"#, options: [.regularExpression, .caseInsensitive]) != nil else { return nil }
+            raw = "https://" + raw
+        }
+        guard let url = webURL(raw), let host = BrandCatalog.host(of: raw) else { return nil }
+        let brand = BrandCatalog.match(url: raw, texts: [])
+        let path = url.pathComponents.filter { $0 != "/" }
+        let kind: EntryKind
+        func on(_ domains: [String]) -> Bool { domains.contains { host == $0 || host.hasSuffix("." + $0) } }
+        if on(["github.com", "gitlab.com", "bitbucket.org"]) && path.count >= 2 { kind = .repository }
+        else if let brand, BrandCatalog.socialPlatformIDs.contains(brand.id) { kind = .social }
+        else if on(["chatgpt.com", "chat.openai.com", "claude.ai", "gemini.google.com", "perplexity.ai"]) { kind = .conversation }
+        else if on(["figma.com", "docs.google.com", "notion.so", "notion.site", "miro.com", "canva.com"]) { kind = .document }
+        else if brand != nil { kind = .service }
+        else { kind = .link }
+        let title = kind == .repository ? path[1] : (brand?.name ?? host)
+        return Entry(projectID: projectID, kind: kind, title: title, url: url.absoluteString, category: brand?.name ?? "")
+    }
 }
 
 /// Non-secret metadata for a credential. The secret itself lives only in the macOS Keychain.
@@ -524,6 +550,19 @@ extension DiagramEdge {
     }
 }
 
+/// How a map draws its connections.
+enum LineStyle: String, Codable, CaseIterable, Identifiable {
+    case elbow = "Elbow", curved = "Curved", straight = "Straight"
+    var id: String { rawValue }
+    var icon: String {
+        switch self {
+        case .elbow: return "arrow.turn.down.right"
+        case .curved: return "point.topleft.down.to.point.bottomright.curvepath"
+        case .straight: return "line.diagonal.arrow"
+        }
+    }
+}
+
 struct Diagram: Identifiable, Codable, Equatable {
     var id = UUID()
     var projectID: UUID
@@ -531,11 +570,12 @@ struct Diagram: Identifiable, Codable, Equatable {
     var nodes: [DiagramNode] = []
     var edges: [DiagramEdge] = []
     var groups: [DiagramGroup] = []
+    var lineStyle: LineStyle = .elbow
     var updatedAt = Date()
 }
 
 extension Diagram {
-    enum CodingKeys: String, CodingKey { case id, projectID, title, nodes, edges, groups, updatedAt }
+    enum CodingKeys: String, CodingKey { case id, projectID, title, nodes, edges, groups, lineStyle, updatedAt }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
@@ -544,6 +584,7 @@ extension Diagram {
         nodes = try c.value(.nodes, [])
         edges = try c.value(.edges, [])
         groups = try c.value(.groups, [])
+        lineStyle = (try? c.decode(LineStyle.self, forKey: .lineStyle)) ?? .elbow
         updatedAt = try c.value(.updatedAt, Date())
     }
 }
