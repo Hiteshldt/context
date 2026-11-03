@@ -13,11 +13,14 @@ struct ReminderItem: Identifiable, Equatable {
     var isCompleted = false
     var completedAt: Date?
     var createdAt: Date?
+    /// The map box the reminder belongs to, if any.
+    var boxID: UUID?
 
     init(id: String = UUID().uuidString, listID: String, title: String, notes: String = "", due: Date? = nil, hasTime: Bool = false,
-         repeats: RepeatOption = .never, isCompleted: Bool = false, completedAt: Date? = nil, createdAt: Date? = nil) {
+         repeats: RepeatOption = .never, isCompleted: Bool = false, completedAt: Date? = nil, createdAt: Date? = nil, boxID: UUID? = nil) {
         self.id = id; self.listID = listID; self.title = title; self.notes = notes; self.due = due; self.hasTime = hasTime
         self.repeats = repeats; self.isCompleted = isCompleted; self.completedAt = completedAt; self.createdAt = createdAt
+        self.boxID = boxID
     }
 
     init(_ reminder: EKReminder) {
@@ -26,7 +29,16 @@ struct ReminderItem: Identifiable, Equatable {
                   title: reminder.title ?? "", notes: reminder.notes ?? "",
                   due: parts.flatMap { ($0.calendar ?? .current).date(from: $0) }, hasTime: parts?.hour != nil,
                   repeats: RepeatOption(rules: reminder.recurrenceRules), isCompleted: reminder.isCompleted,
-                  completedAt: reminder.completionDate, createdAt: reminder.creationDate)
+                  completedAt: reminder.completionDate, createdAt: reminder.creationDate, boxID: Self.boxID(from: reminder.url))
+    }
+
+    /// A reminder made on a map box keeps a link back to it in Apple Reminders (its URL), so it shows on that box
+    /// wherever it syncs, and clicking the link in Apple Reminders opens the box in Context.
+    static func boxURL(_ id: UUID) -> URL { URL(string: "context://box/\(id.uuidString)")! }
+
+    static func boxID(from url: URL?) -> UUID? {
+        guard let url, url.scheme?.lowercased() == "context", url.host()?.lowercased() == "box" else { return nil }
+        return UUID(uuidString: url.lastPathComponent)
     }
 
     func isOverdue(now: Date = Date()) -> Bool {

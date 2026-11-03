@@ -388,6 +388,19 @@ final class WorkspaceTests {
         XCTAssertEqual(repeats.back, [7, 8, 9])
     }
 
+    func testRemindersPointBackToTheirBox() {
+        let box = UUID()
+        let url = ReminderItem.boxURL(box)
+        XCTAssertEqual(url.absoluteString, "context://box/\(box.uuidString)")
+        XCTAssertEqual(ReminderItem.boxID(from: url), box)
+        XCTAssertEqual(ReminderItem.boxID(from: URL(string: "CONTEXT://Box/\(box.uuidString.lowercased())")), box)
+        // Links that aren't Context box links (or aren't there at all) belong to no box.
+        XCTAssertNil(ReminderItem.boxID(from: nil))
+        XCTAssertNil(ReminderItem.boxID(from: URL(string: "https://example.com/box/\(box.uuidString)")))
+        XCTAssertNil(ReminderItem.boxID(from: URL(string: "context://project/\(box.uuidString)")))
+        XCTAssertNil(ReminderItem.boxID(from: URL(string: "context://box/not-a-box")))
+    }
+
     func testPastedLinksGuessTheirKindAndName() {
         let project = UUID()
         let repo = try! XCTUnwrap(Entry.quick(url: "github.com/acme/web", projectID: project))
@@ -709,6 +722,7 @@ struct TestRunner {
             ("testDraggedBoxesLineUpWithOthers", { tests.testDraggedBoxesLineUpWithOthers() }),
             ("testPastedLinksGuessTheirKindAndName", { tests.testPastedLinksGuessTheirKindAndName() }),
             ("testBackAndForwardLikeABrowser", { tests.testBackAndForwardLikeABrowser() }),
+            ("testRemindersPointBackToTheirBox", { tests.testRemindersPointBackToTheirBox() }),
             ("testLauncherRanking", { tests.testLauncherRanking() }),
             ("testBackupWriterKeepsOneFilePerDayAndPrunes", { try tests.testBackupWriterKeepsOneFilePerDayAndPrunes() }),
             ("testCloudFolderDetection", { try tests.testCloudFolderDetection() }),

@@ -15,6 +15,10 @@ extension Notification.Name {
     static let contextShowTab = Notification.Name("ContextShowTab")
     /// Carries a `LauncherTarget` chosen outside the main window (the menu bar).
     static let contextOpenTarget = Notification.Name("ContextOpenTarget")
+    /// Carries a map box's UUID: show it on its map and select it.
+    static let contextShowBox = Notification.Name("ContextShowBox")
+    /// Carries a map box's UUID from outside the window (a link in Apple Reminders): open its project, then show it.
+    static let contextOpenBox = Notification.Name("ContextOpenBox")
     static let contextGoBack = Notification.Name("ContextGoBack")
     static let contextGoForward = Notification.Name("ContextGoForward")
 }
@@ -53,6 +57,13 @@ struct ContentView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .contextGoBack)) { _ in goBack() }
             .onReceive(NotificationCenter.default.publisher(for: .contextGoForward)) { _ in goForward() }
+            .onReceive(NotificationCenter.default.publisher(for: .contextOpenBox)) { note in
+                guard let box = note.object as? UUID,
+                      let map = store.workspace.diagrams.first(where: { $0.nodes.contains { $0.id == box } }) else { return }
+                sheet = nil; showLauncher = false
+                route = .project(map.projectID)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { NotificationCenter.default.post(name: .contextShowBox, object: box) }
+            }
             .onAppear {
                 gestures.back = goBack
                 gestures.forward = goForward

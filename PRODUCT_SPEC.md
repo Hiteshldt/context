@@ -1,6 +1,6 @@
 # Personal Mac Workspace
 
-Status: draft derived from the requirement note. Since version 0.7 the app is deliberately simpler than this spec: each project has a Map (with its links beside it) and Reminders (stored in Apple Reminders); the Overview, Tasks, Notes, Files, clients, and social-post features were removed. See README.md for what is built.
+Status: draft derived from the requirement note. Since version 0.7 the app is deliberately simpler than this spec: each project is a Map, with its links beside it and its reminders (stored in Apple Reminders) on its boxes; the Overview, Tasks, Notes, Files, clients, and social-post features were removed. See README.md for what is built.
 
 ## Product purpose
 

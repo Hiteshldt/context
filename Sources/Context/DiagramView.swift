@@ -22,6 +22,13 @@ struct DiagramSection: View {
         }
         // Every project has a map: it's where its links live too.
         .onAppear { if diagrams.isEmpty { create(fromLinks: false) } }
+        .onReceive(NotificationCenter.default.publisher(for: .contextShowBox)) { note in
+            // A box on another of the project's maps: switch to that map, then show the box once it's open.
+            guard let id = note.object as? UUID, let map = diagrams.first(where: { $0.nodes.contains { $0.id == id } }),
+                  map.id != (diagrams.first { $0.id == selectedID } ?? diagrams.max { $0.updatedAt < $1.updatedAt })?.id else { return }
+            selectedID = map.id
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { NotificationCenter.default.post(name: .contextShowBox, object: id) }
+        }
     }
 
     func create(fromLinks: Bool) {
@@ -63,8 +70,11 @@ struct DiagramEditor: View {
     @State private var groupResize: (id: UUID, grow: CGSize)?
     /// A connection being dragged out from a box's handle.
     @State private var linking: (from: UUID, to: CGPoint)?
-    /// Dragging empty space pans; with Shift held it draws a selection rectangle.
+    /// Dragging empty space draws a selection rectangle; with Space or ⌥ held it pans.
     @State private var marquee: CGRect?
+    /// What was selected before the rectangle started (kept when Shift is held).
+    @State private var marqueeBase: Set<UUID> = []
+    @State private var spaceHeld = false
     /// A connection started by clicking a box's ●, waiting for a click on the box to connect to.
     @State private var connectingFrom: UUID?
     @State private var backgroundPanning = false
@@ -75,6 +85,7 @@ struct DiagramEditor: View {
     /// A link being created in the editor sheet, to be placed on the map once it's saved.
     @State private var pendingPlacement: (id: UUID, at: CGPoint)?
     @StateObject private var viewport = MapViewport()
+    @ObservedObject private var reminders = RemindersService.shared
     @State private var keyMonitor: Any?
     @State private var confirmDelete = false
     @State private var renaming = false
@@ -132,7 +143,7 @@ struct DiagramEditor: View {
             if initiallyShowLinks { showLinks = true }
             installKeys()
         }
-        .onDisappear(perform: removeKeys)
+        .onDisappear { removeKeys(); spaceHeld = false }
         .onChange(of: store.workspace.diagrams.first { $0.id == diagram.id }) { _, stored in
             if let stored, dragging.isEmpty, linking == nil, groupDrag == nil, groupResize == nil, stored != diagram {
                 // Changed elsewhere, e.g. by Undo: show it, and drop anything selected that no longer exists.
@@ -151,6 +162,9 @@ struct DiagramEditor: View {
                 addNode(entry: entry, at: pending.at)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .contextShowBox)) { note in
+            if let id = note.object as? UUID, let node = diagram.nodes.first(where: { $0.id == id }) { showLinks = false; locateNode(node) }
+        }
         .onAppear(perform: refreshUndo)
         .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidCloseUndoGroup)) { _ in refreshUndo() }
         .onReceive(NotificationCenter.default.publisher(for: .NSUndoManagerDidUndoChange)) { _ in refreshUndo() }
@@ -168,8 +182,8 @@ struct DiagramEditor: View {
     var hint: String {
         if connectingFrom != nil { return "Click the box to connect to · Esc or a click on empty space cancels" }
         if diagram.nodes.isEmpty { return "Double-click anywhere to add a box or a link" }
-        if selectedNodes.count > 1 { return "\(selectedNodes.count) boxes selected · drag one to move them all · Delete removes them" }
-        return "Double-click to add · drag empty space to move · Shift-drag to select several · click or drag a ● to connect"
+        if selectedNodes.count > 1 { return "\(selectedNodes.count) boxes selected · drag one to move them all · ⌘C copies · Delete removes them" }
+        return "Double-click to add · drag to select · scroll or Space-drag to move · click or drag a ● to connect"
     }
 
     var emptyHint: some View {
@@ -223,7 +237,8 @@ struct DiagramEditor: View {
                 if let route = routes[edge.id] { edgeLabel(edge, at: route.labelPoint) }
             }
             guides(rects)
-            ForEach(diagram.nodes) { node in nodeView(node) }
+            let marks = reminderMarks
+            ForEach(diagram.nodes) { node in nodeView(node, marks: marks) }
             if let marquee {
                 Rectangle().fill(tint.opacity(0.08)).overlay(Rectangle().strokeBorder(tint.opacity(0.7), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
                     .frame(width: marquee.width, height: marquee.height).position(x: marquee.midX, y: marquee.midY)
@@ -248,11 +263,19 @@ struct DiagramEditor: View {
         .coordinateSpace(name: "canvas")
     }
 
+    /// Dragging empty space selects the boxes it covers (Shift adds to what's selected). With Space or ⌥ held it
+    /// moves the map instead, as two-finger scrolling does.
     var backgroundDrag: some Gesture {
         DragGesture(minimumDistance: 3)
             .onChanged { value in
                 if marquee == nil && !backgroundPanning {
-                    if NSEvent.modifierFlags.contains(.shift) { marquee = .zero } else { backgroundPanning = true }
+                    if spaceHeld || NSEvent.modifierFlags.contains(.option) {
+                        backgroundPanning = true
+                    } else {
+                        if editingNode != nil { editingNode = nil; save() }
+                        marqueeBase = NSEvent.modifierFlags.contains(.shift) ? selectedNodes : []
+                        marquee = .zero
+                    }
                 }
                 if marquee != nil {
                     marquee = CGRect(x: min(value.startLocation.x, value.location.x), y: min(value.startLocation.y, value.location.y),
@@ -263,19 +286,24 @@ struct DiagramEditor: View {
             }
             .onEnded { _ in
                 if let marquee {
-                    let hit = diagram.nodes.filter { DiagramLayout.rect(of: $0).intersects(marquee) }.map(\.id)
                     selectedEdge = nil; selectedGroup = nil
-                    selectedNodes.formUnion(hit)
+                    selectedNodes = marqueeBase.union(boxes(in: marquee))
                 }
                 marquee = nil
                 if backgroundPanning { backgroundPanning = false; viewport.endPan() }
             }
     }
 
-    @ViewBuilder func nodeView(_ node: DiagramNode) -> some View {
+    func boxes(in rect: CGRect) -> Set<UUID> {
+        Set(diagram.nodes.filter { DiagramLayout.rect(of: $0).intersects(rect) }.map(\.id))
+    }
+
+    @ViewBuilder func nodeView(_ node: DiagramNode, marks: [UUID: ReminderMark]) -> some View {
         let offset = offset(of: node.id)
-        DiagramNodeView(node: node, info: info(node), selected: selectedNodes.contains(node.id), editing: editingNode == node.id,
-                        linkTarget: linkTarget == node.id, linkSource: linking?.from == node.id,
+        // Boxes inside a selection rectangle being drawn show as selected straight away.
+        let inMarquee = marquee.map { DiagramLayout.rect(of: node).intersects($0) } ?? false
+        DiagramNodeView(node: node, info: info(node), selected: selectedNodes.contains(node.id) || inMarquee, editing: editingNode == node.id,
+                        linkTarget: linkTarget == node.id, linkSource: linking?.from == node.id, reminder: marks[node.id],
                         label: Binding(get: { node.label }, set: { setLabel($0, for: node.id) }),
                         onSelect: {
                             if connectingFrom != nil { finishConnecting(to: node.id) } else { selectNode(node.id, extending: NSEvent.modifierFlags.contains(.shift)) }
@@ -290,6 +318,18 @@ struct DiagramEditor: View {
             .equatable()
             .position(x: node.x + offset.width, y: node.y + offset.height)
             .contextMenu { nodeMenu(node) }
+    }
+
+    /// The open reminders on each box, for the small bell on it.
+    var reminderMarks: [UUID: ReminderMark] {
+        guard let project = store.project(diagram.projectID) else { return [:] }
+        var marks: [UUID: ReminderMark] = [:]
+        for item in reminders.items(for: project) where !item.isCompleted {
+            guard let box = item.boxID else { continue }
+            marks[box, default: ReminderMark()].count += 1
+            if item.needsAttention(now: store.clock) { marks[box]?.attention = true }
+        }
+        return marks
     }
 
     /// How far a box is currently being dragged, on its own or as part of a group.
@@ -774,6 +814,13 @@ struct DiagramEditor: View {
         Text("Links stay saved; they're only taken off the map.").font(T.caption).foregroundStyle(Theme.ink3)
     }
 
+    @ViewBuilder func boxReminders(_ node: DiagramNode) -> some View {
+        if let project = store.project(diagram.projectID) {
+            Rectangle().fill(Theme.border).frame(height: 1)
+            BoxReminders(project: project, boxID: node.id)
+        }
+    }
+
     @ViewBuilder func nodeInspector(_ index: Int) -> some View {
         let node = diagram.nodes[index]
         let details = info(node)
@@ -811,20 +858,24 @@ struct DiagramEditor: View {
                 MarkdownDocumentView(source: entry.body, baseSize: 13).textSelection(.enabled)
             }
             connections(of: node)
+            boxReminders(node)
         } else if details.missing {
             Label("The link this box pointed to was deleted.", systemImage: "exclamationmark.triangle.fill").font(T.small).foregroundStyle(Theme.overdue)
                 .fixedSize(horizontal: false, vertical: true)
             Button("Keep as a plain box") { diagram.nodes[index].entryID = nil; save() }.buttonStyle(.softCompact)
             connections(of: node)
+            boxReminders(node)
         } else if node.kind == .note {
             field("Write a note", Binding(get: { diagram.nodes[index].label }, set: { setLabel($0, for: node.id) }), lines: 3...14)
             colorPicker(index)
             connections(of: node)
+            boxReminders(node)
         } else {
             field("Name", Binding(get: { diagram.nodes[index].label }, set: { setLabel($0, for: node.id) }))
             Eyebrow(text: "Notes")
             field("What it is, who owns it, anything to remember", Binding(get: { diagram.nodes[index].notes }, set: { diagram.nodes[index].notes = $0; scheduleSave() }), lines: 3...12)
             connections(of: node)
+            boxReminders(node)
             Eyebrow(text: "Type")
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 5), spacing: 6) {
                 ForEach(NodeKind.allCases) { kind in
@@ -939,7 +990,9 @@ struct DiagramEditor: View {
                 ForEach(targets) { target in Button(info(target).title.ifEmpty("Untitled")) { connect(node.id, target.id) } }
             }
         }
-        Button("Duplicate") { duplicate(node.id) }
+        let chosen = selectedNodes.contains(node.id) ? selectedNodes : [node.id]
+        Button("Copy") { selectedNodes = chosen; copySelection() }
+        Button("Duplicate") { duplicate(chosen) }
         Button("Put in a New Group") { addGroup(around: selectedNodes.contains(node.id) ? diagram.nodes.filter { selectedNodes.contains($0.id) } : [node], at: CGPoint(x: node.x, y: node.y)) }
         Divider()
         Button(node.entryID == nil ? "Delete" : "Remove from Map", role: .destructive) {
@@ -1003,12 +1056,69 @@ struct DiagramEditor: View {
         save()
     }
 
-    func duplicate(_ id: UUID) {
-        guard var copy = diagram.nodes.first(where: { $0.id == id }) else { return }
-        copy.id = UUID()
-        let spot = DiagramLayout.freeSpot(near: CGPoint(x: copy.x + 40, y: copy.y + 80), in: diagram)
-        copy.x = spot.x; copy.y = spot.y
-        diagram.nodes.append(copy); selectNode(copy.id); save()
+    /// Duplicates boxes, and the connections between them, a little below and to the right.
+    func duplicate(_ ids: Set<UUID>) {
+        let nodes = diagram.nodes.filter { ids.contains($0.id) }
+        guard !nodes.isEmpty else { return }
+        place(independentCopies(of: nodes, edges: diagram.edges, offset: CGSize(width: 40, height: 80)))
+    }
+
+    /// Boxes copied with ⌘C. Kept for the whole app, so they can be pasted into another map too.
+    static var clipboard: (nodes: [DiagramNode], edges: [DiagramEdge], from: UUID)?
+
+    func copySelection() {
+        let nodes = diagram.nodes.filter { selectedNodes.contains($0.id) }
+        guard !nodes.isEmpty else { return }
+        Self.clipboard = (nodes, diagram.edges, diagram.id)
+    }
+
+    /// Pastes copied boxes in the middle of the screen (beside the originals when they're in view).
+    func paste() {
+        guard let clip = Self.clipboard, !clip.nodes.isEmpty else { return }
+        let bounds = clip.nodes.map { DiagramLayout.rect(of: $0) }.reduce(CGRect.null) { $0.union($1) }
+        var offset = CGSize(width: visibleCenter.x - bounds.midX, height: visibleCenter.y - bounds.midY)
+        if clip.from == diagram.id, abs(offset.width) < 40, abs(offset.height) < 40 { offset = CGSize(width: 40, height: 80) }
+        place(independentCopies(of: clip.nodes, edges: clip.edges, offset: offset))
+    }
+
+    /// Copies of boxes that share nothing with the originals: a box made from a link gets its own copy of the link,
+    /// so editing one never changes the other. Saved passwords aren't copied; they stay with the original link.
+    func independentCopies(of nodes: [DiagramNode], edges: [DiagramEdge], offset: CGSize) -> (nodes: [DiagramNode], edges: [DiagramEdge]) {
+        var newID: [UUID: UUID] = [:]
+        let copies = nodes.map { node -> DiagramNode in
+            var copy = node
+            copy.id = UUID()
+            newID[node.id] = copy.id
+            let point = DiagramLayout.clamp(CGPoint(x: node.x + offset.width, y: node.y + offset.height))
+            copy.x = DiagramLayout.snap(point.x); copy.y = DiagramLayout.snap(point.y)
+            if let entryID = node.entryID, let original = store.entry(entryID) {
+                var link = original
+                link.id = UUID()
+                link.projectID = diagram.projectID
+                link.credentials = []
+                link.pinned = false
+                link.openCount = 0
+                link.lastOpenedAt = nil
+                link.createdAt = Date()
+                copy.entryID = store.save(link) ? link.id : nil
+            }
+            return copy
+        }
+        let connections = edges.compactMap { edge -> DiagramEdge? in
+            guard let from = newID[edge.from], let to = newID[edge.to] else { return nil }
+            var copy = edge
+            copy.id = UUID(); copy.from = from; copy.to = to
+            return copy
+        }
+        return (copies, connections)
+    }
+
+    func place(_ copies: (nodes: [DiagramNode], edges: [DiagramEdge])) {
+        diagram.nodes += copies.nodes
+        diagram.edges += copies.edges
+        selectedEdge = nil; selectedGroup = nil; editingNode = nil
+        selectedNodes = Set(copies.nodes.map(\.id))
+        save()
     }
 
     /// Lines the selected boxes up on their average centre.
@@ -1055,7 +1165,13 @@ struct DiagramEditor: View {
 
     func installKeys() {
         removeKeys()
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in handleKey(event) ? nil : event }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { event in
+            if event.type == .keyUp {
+                if event.keyCode == 49 { spaceHeld = false }
+                return event
+            }
+            return handleKey(event) ? nil : event
+        }
     }
 
     func removeKeys() {
@@ -1077,6 +1193,7 @@ struct DiagramEditor: View {
             return false
         }
         guard !typing else { return false }
+        if event.keyCode == 49, flags.subtracting(.capsLock).isEmpty { spaceHeld = true; return true } // Space: drag to move the map
         if flags.contains(.command) {
             switch event.charactersIgnoringModifiers {
             case "=", "+": viewport.zoomIn(); return true
@@ -1085,8 +1202,14 @@ struct DiagramEditor: View {
             case "a": selectedEdge = nil; selectedGroup = nil; selectedNodes = Set(diagram.nodes.map(\.id)); return true
             case "d":
                 guard !selectedNodes.isEmpty else { return false }
-                for id in selectedNodes { duplicate(id) }
+                duplicate(selectedNodes)
                 return true
+            case "c":
+                guard !selectedNodes.isEmpty else { return false }
+                copySelection(); return true
+            case "v":
+                guard Self.clipboard != nil else { return false }
+                paste(); return true
             default: return false
             }
         }
@@ -1189,6 +1312,8 @@ struct DiagramNodeView: View, Equatable {
     let linkTarget: Bool
     /// A connection is being dragged out of this box.
     let linkSource: Bool
+    /// The box's open reminders, shown as a small bell.
+    var reminder: ReminderMark? = nil
     @Binding var label: String
     let onSelect: () -> Void
     let onOpen: () -> Void
@@ -1204,7 +1329,7 @@ struct DiagramNodeView: View, Equatable {
 
     static func == (a: DiagramNodeView, b: DiagramNodeView) -> Bool {
         a.node == b.node && a.info == b.info && a.selected == b.selected && a.editing == b.editing
-            && a.linkTarget == b.linkTarget && a.linkSource == b.linkSource
+            && a.linkTarget == b.linkTarget && a.linkSource == b.linkSource && a.reminder == b.reminder
     }
 
     /// How far the handles reach past the box's edges. The box takes clicks and hover that far out at each handle,
@@ -1229,10 +1354,22 @@ struct DiagramNodeView: View, Equatable {
             )
             .shadow(color: selected || linkTarget ? tint.opacity(0.25) : .black.opacity(hovering ? 0.12 : 0.06), radius: selected ? 10 : (hovering ? 9 : 5), y: 2)
             .overlay(alignment: .topTrailing) {
-                if !isNote && !notes.isEmpty {
-                    Image(systemName: "text.alignleft").font(.system(size: 8.5, weight: .bold)).foregroundStyle(Theme.ink3)
-                        .padding(7).accessibilityLabel("Has notes")
+                HStack(spacing: 4) {
+                    if let reminder {
+                        HStack(spacing: 1.5) {
+                            Image(systemName: "bell.fill").font(.system(size: 8.5, weight: .bold))
+                            if reminder.count > 1 { Text("\(reminder.count)").font(.system(size: 9.5, weight: .bold).monospacedDigit()) }
+                        }
+                        .foregroundStyle(reminder.attention ? Theme.overdue : tint)
+                        .help(reminder.attention ? "A reminder on this box is due" : (reminder.count == 1 ? "1 reminder" : "\(reminder.count) reminders"))
+                        .accessibilityLabel(reminder.count == 1 ? "1 reminder" : "\(reminder.count) reminders")
+                    }
+                    if !isNote && !notes.isEmpty {
+                        Image(systemName: "text.alignleft").font(.system(size: 8.5, weight: .bold)).foregroundStyle(Theme.ink3)
+                            .accessibilityLabel("Has notes")
+                    }
                 }
+                .padding(7)
             }
             // Always there, only faded: a drag that started on a handle would be cancelled if the handle went away.
             .overlay { handles.opacity(showsHandles ? 1 : 0).allowsHitTesting(showsHandles) }
@@ -1308,6 +1445,12 @@ struct DiagramNodeView: View, Equatable {
             .padding(.horizontal, 11)
         }
     }
+}
+
+/// What a box's bell shows: how many open reminders it has, and whether one is due today or overdue.
+struct ReminderMark: Equatable {
+    var count = 0
+    var attention = false
 }
 
 /// Where a box takes clicks and hover: the box itself, plus a circle at the middle of each side for its handles.

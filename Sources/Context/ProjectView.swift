@@ -1,29 +1,23 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// A project: a compact header, then its map (with its links) or its reminders.
+/// A project: a compact header with its reminders, then its map (links and reminders live on the map's boxes).
 struct ProjectView: View {
     @EnvironmentObject var store: Store
     @Environment(\.present) var present
     @ObservedObject private var reminders = RemindersService.shared
     let project: Project
     @State private var dropTargeted = false
+    @State private var showingReminders = false
 
     var tint: Color { Theme.color(project.color) }
-    var tab: ProjectTab { store.lastSection[project.id] ?? .map }
-    func select(_ tab: ProjectTab) { store.lastSection[project.id] = tab }
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Rectangle().fill(Theme.border).frame(height: 1)
-            Group {
-                switch tab {
-                case .map: DiagramSection(project: project)
-                case .reminders: RemindersSection(project: project)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            DiagramSection(project: project)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onAppear { store.markOpened(project.id) }
     }
@@ -39,7 +33,7 @@ struct ProjectView: View {
             }
             .frame(maxWidth: 360, alignment: .leading)
             Spacer(minLength: 16)
-            tabs
+            remindersButton
             Spacer(minLength: 16)
             IconButton(icon: "slider.horizontal.3", help: "Project settings", size: 30) { present(.project(project)) }
         }
@@ -80,39 +74,33 @@ struct ProjectView: View {
         store.saveQuietly(updated)
     }
 
-    var tabs: some View {
-        HStack(spacing: 2) {
-            ForEach(ProjectTab.allCases) { item in
-                let selected = tab == item
-                Button { select(item) } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: item.icon).font(.system(size: 11.5, weight: .semibold))
-                        Text(item.rawValue).font(.system(size: 13, weight: selected ? .semibold : .medium))
-                        if let count = badge(item), count > 0 {
-                            Text("\(count)").font(.system(size: 11, weight: .semibold).monospacedDigit())
-                                .foregroundStyle(item == .reminders && attention > 0 ? Theme.overdue : (selected ? tint : Theme.ink3))
-                        }
-                    }
-                    .foregroundStyle(selected ? Theme.ink : Theme.ink2)
-                    .padding(.horizontal, 13).padding(.vertical, 6)
-                    .background(selected ? Theme.card : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .shadow(color: .black.opacity(selected ? 0.08 : 0), radius: 2, y: 1)
-                    .contentShape(Rectangle())
+    /// All of the project's reminders at a glance: a count (red when something is due), and the list by box.
+    var remindersButton: some View {
+        let open = reminders.items(for: project).filter { !$0.isCompleted }.count
+        return Button { showingReminders = true } label: {
+            HStack(spacing: 6) {
+                Image(systemName: attention > 0 ? "bell.badge.fill" : "bell").font(.system(size: 12, weight: .semibold))
+                Text("Reminders").font(.system(size: 13, weight: .medium))
+                if attention > 0 || open > 0 {
+                    Text("\(attention > 0 ? attention : open)").font(.system(size: 11, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(attention > 0 ? Theme.overdue : Theme.ink3)
                 }
-                .buttonStyle(.plain)
-                .help("\(item.rawValue) (⌘\(ProjectTab.allCases.firstIndex(of: item)! + 1))")
             }
+            .foregroundStyle(attention > 0 ? Theme.overdue : Theme.ink2)
+            .padding(.horizontal, 13).padding(.vertical, 7)
+            .background(Theme.raised.opacity(0.7), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .contentShape(Rectangle())
         }
-        .padding(3)
-        .background(Theme.raised.opacity(0.7), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .buttonStyle(.plain)
+        .help(attention > 0 ? "\(attention) due · all of this project's reminders" : "All of this project's reminders, by box")
+        .popover(isPresented: $showingReminders, arrowEdge: .bottom) {
+            ProjectRemindersPanel(project: project, showBox: { id in
+                showingReminders = false
+                NotificationCenter.default.post(name: .contextShowBox, object: id)
+            })
+            .environmentObject(store).environment(\.pageTint, tint)
+        }
     }
 
     var attention: Int { reminders.attentionCount(for: project, now: store.clock) }
-
-    func badge(_ tab: ProjectTab) -> Int? {
-        switch tab {
-        case .map: return nil
-        case .reminders: return attention > 0 ? attention : reminders.items(for: project).filter { !$0.isCompleted }.count
-        }
-    }
 }

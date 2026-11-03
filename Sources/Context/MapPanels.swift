@@ -122,6 +122,7 @@ struct QuickAddPanel: View {
 /// Every link of the project, beside the map: open, edit, or put them on the map.
 struct MapLinksPanel: View {
     @EnvironmentObject var store: Store
+    @ObservedObject private var reminders = RemindersService.shared
     @Environment(\.present) var present
     @Environment(\.pageTint) var tint
     let projectID: UUID
@@ -163,6 +164,7 @@ struct MapLinksPanel: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
+                    looseReminders
                     if all.isEmpty {
                         Text(query.isEmpty ? "No links yet. Double-click the map and paste a link, or click New." : "Nothing matches.")
                             .font(T.small).foregroundStyle(Theme.ink2).padding(.horizontal, 6).padding(.vertical, 10)
@@ -187,6 +189,19 @@ struct MapLinksPanel: View {
         } message: {
             Text((deleting?.credentials.isEmpty ?? true) ? "This removes the link from Context. Boxes on the map that show it are marked as removed."
                                                          : "This also deletes \(deleting!.credentials.count) saved password(s) from the Keychain.")
+        }
+    }
+
+    /// Reminders in the project that aren't on any box (from before reminders lived on boxes, or made in Apple
+    /// Reminders), so they're never lost. New ones are added from a box's details.
+    @ViewBuilder var looseReminders: some View {
+        if reminders.access == .granted, let project = store.project(projectID) {
+            let loose = reminders.byBox(for: project, in: store.workspace).loose.filter { !$0.isCompleted }.sorted(by: ReminderItem.order)
+            if !loose.isEmpty {
+                Text("REMINDERS NOT ON A BOX").font(T.label).tracking(1).foregroundStyle(Theme.ink3)
+                    .padding(.horizontal, 6).padding(.top, 10).padding(.bottom, 3)
+                ForEach(loose) { ReminderRow(item: $0) }
+            }
         }
     }
 

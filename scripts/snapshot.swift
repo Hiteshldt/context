@@ -99,7 +99,9 @@ func seed(_ store: Store) -> (ayuvam: Project, service: Entry) {
                          groups: [DiagramLayout.group(around: [n4, n5], or: .zero, title: "Data & delivery", color: "teal")]), in: \.diagrams)
 
     RemindersService.shared.useDemo([
-        ReminderItem(listID: "demo-ayuvam", title: "Swap payment webhook to production keys", notes: "Razorpay → Settings → Webhooks", due: day(-2)),
+        ReminderItem(listID: "demo-ayuvam", title: "Swap payment webhook to production keys", notes: "Razorpay → Settings → Webhooks", due: day(-2), boxID: n7.id),
+        ReminderItem(listID: "demo-ayuvam", title: "Rotate the database password", due: day(6), boxID: n5.id),
+        ReminderItem(listID: "demo-ayuvam", title: "Check the nightly backup ran", due: day(2), boxID: n5.id),
         ReminderItem(listID: "demo-ayuvam", title: "Review landing page copy", due: at(0, 15), hasTime: true),
         ReminderItem(listID: "demo-ayuvam", title: "Post the monsoon carousel", due: at(0, 19), hasTime: true),
         ReminderItem(listID: "demo-ayuvam", title: "Renew ayuvam.com", due: day(4), repeats: .yearly),
@@ -151,8 +153,6 @@ MainActor.assumeIsolated {
                 .environmentObject(store).environment(\.pageTint, Theme.color("sage")),
              size: CGSize(width: 1300, height: 820), to: "\(out)/12-links.png")
     }
-    store.lastSection[id] = .reminders; page(.project(id), "13-reminders")
-    page(.project(id), "13-reminders-dark", dark: true)
     snap(BackupView().environmentObject(store).environmentObject(backup), size: CGSize(width: 640, height: 700), to: "\(out)/20-backup.png")
     snap(EntryEditor(entry: seeded.service).environmentObject(store), size: CGSize(width: 660, height: 720), to: "\(out)/22-link-editor.png")
     snap(ProjectEditor(project: seeded.ayuvam).environmentObject(store), size: CGSize(width: 540, height: 500), to: "\(out)/23-project-editor.png")

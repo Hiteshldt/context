@@ -1,46 +1,65 @@
 import SwiftUI
 
-/// A project's reminders, kept in its own list in Apple Reminders.
-struct RemindersSection: View {
+/// Every reminder in a project, by the box it's on, opened from the Reminders button at the top of the project.
+struct ProjectRemindersPanel: View {
     @EnvironmentObject var store: Store
     @ObservedObject private var reminders = RemindersService.shared
     @Environment(\.pageTint) var tint
     let project: Project
-    @State private var showCompleted = false
-
-    var all: [ReminderItem] { reminders.items(for: project) }
-    var open: [ReminderItem] { all.filter { !$0.isCompleted }.sorted(by: ReminderItem.order) }
-    var done: [ReminderItem] { all.filter(\.isCompleted).sorted { ($0.completedAt ?? .distantPast) > ($1.completedAt ?? .distantPast) } }
+    /// Shows a box on the map.
+    let showBox: (UUID) -> Void
 
     var body: some View {
-        Page(maxWidth: 780, spacing: 14) {
-            switch reminders.access {
-            case .granted: connected
-            case .unknown: ConnectRemindersCard()
-            case .denied: ConnectRemindersCard(denied: true)
+        VStack(alignment: .leading, spacing: 0) {
+            Eyebrow(text: "Reminders").padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 8)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    switch reminders.access {
+                    case .granted: connected
+                    case .unknown: ConnectRemindersCard(compact: true)
+                    case .denied: ConnectRemindersCard(denied: true, compact: true)
+                    }
+                }
+                .padding(.horizontal, 8).padding(.bottom, 10)
+            }
+            if reminders.access == .granted {
+                Rectangle().fill(Theme.border).frame(height: 1)
+                listFooter.padding(.horizontal, 10).padding(.vertical, 9)
             }
         }
+        .frame(width: 390).frame(maxHeight: 540)
     }
 
     @ViewBuilder var connected: some View {
-        ReminderComposer(projectID: project.id)
-        if open.isEmpty {
-            Text(all.isEmpty ? "No reminders yet. Type one above and press Return. Dates like “tomorrow 5pm” or “next friday” are picked up as you type."
-                             : "All done.")
-                .font(T.small).foregroundStyle(Theme.ink2).fixedSize(horizontal: false, vertical: true).padding(.horizontal, 6).padding(.top, 4)
-        } else {
-            Card(padding: 6) { VStack(spacing: 0) { ForEach(open) { ReminderRow(item: $0) } } }
+        let split = reminders.byBox(for: project, in: store.workspace)
+        let boxes = store.workspace.diagrams.filter { $0.projectID == project.id }.flatMap(\.nodes)
+            .filter { node in split.boxes[node.id]?.contains { !$0.isCompleted } == true }
+        let loose = split.loose.filter { !$0.isCompleted }.sorted(by: ReminderItem.order)
+        if boxes.isEmpty && loose.isEmpty {
+            Text("No reminders yet. Select a box on the map and add one in its details: dates like “tomorrow 5pm” are picked up as you type.")
+                .font(T.small).foregroundStyle(Theme.ink2).fixedSize(horizontal: false, vertical: true).padding(.horizontal, 8).padding(.vertical, 6)
         }
-        if !done.isEmpty {
-            Button { withAnimation(.easeOut(duration: 0.15)) { showCompleted.toggle() } } label: {
+        ForEach(boxes) { node in
+            Button { showBox(node.id) } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: showCompleted ? "chevron.down" : "chevron.right").font(.system(size: 10, weight: .bold))
-                    Text(showCompleted ? "Hide completed" : "Show \(done.count) completed")
-                }.font(T.small.weight(.medium)).foregroundStyle(Theme.ink2).contentShape(Rectangle())
-            }.buttonStyle(.plain).padding(.horizontal, 6)
-            if showCompleted { Card(padding: 6) { VStack(spacing: 0) { ForEach(done) { ReminderRow(item: $0) } } } }
+                    Image(systemName: node.entryID == nil ? node.kind.icon : "link").font(.system(size: 10.5, weight: .semibold)).foregroundStyle(tint)
+                    Text(boxTitle(node)).font(T.small.weight(.semibold)).foregroundStyle(Theme.ink).lineLimit(1)
+                    Spacer()
+                    Image(systemName: "scope").font(.system(size: 10.5)).foregroundStyle(Theme.ink3)
+                }
+                .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 2).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).help("Show this box on the map")
+            ForEach((split.boxes[node.id] ?? []).filter { !$0.isCompleted }.sorted(by: ReminderItem.order)) { ReminderRow(item: $0) }
         }
-        listFooter
+        if !loose.isEmpty {
+            Text("NOT ON A BOX").font(T.label).tracking(1).foregroundStyle(Theme.ink3).padding(.horizontal, 8).padding(.top, 10).padding(.bottom, 2)
+            ForEach(loose) { ReminderRow(item: $0) }
+        }
+    }
+
+    func boxTitle(_ node: DiagramNode) -> String {
+        node.entryID.flatMap { store.entry($0)?.title } ?? node.label.ifEmpty(node.kind.name)
     }
 
     var listFooter: some View {
@@ -62,7 +81,45 @@ struct RemindersSection: View {
             Spacer()
             Button("Open Reminders") { reminders.openRemindersApp() }.buttonStyle(.plain).foregroundStyle(tint)
         }
-        .font(T.caption).foregroundStyle(Theme.ink3).padding(.horizontal, 6).padding(.top, 6)
+        .font(T.caption).foregroundStyle(Theme.ink3)
+    }
+}
+
+/// A map box's reminders, in its details: what's set on it, ticked off when done, and a line to add one with a note.
+struct BoxReminders: View {
+    @EnvironmentObject var store: Store
+    @ObservedObject private var reminders = RemindersService.shared
+    let project: Project
+    let boxID: UUID
+    @State private var showDone = false
+
+    var body: some View {
+        let all = reminders.items(for: project).filter { $0.boxID == boxID }
+        let open = all.filter { !$0.isCompleted }.sorted(by: ReminderItem.order)
+        let done = all.filter(\.isCompleted).sorted { ($0.completedAt ?? .distantPast) > ($1.completedAt ?? .distantPast) }
+        VStack(alignment: .leading, spacing: 6) {
+            Eyebrow(text: "Reminders")
+            switch reminders.access {
+            case .granted:
+                VStack(spacing: 0) { ForEach(open) { ReminderRow(item: $0) } }
+                ReminderComposer(projectID: project.id, boxID: boxID, compact: true)
+                if !done.isEmpty {
+                    Button { showDone.toggle() } label: {
+                        Text(showDone ? "Hide done" : "Show \(done.count) done").font(T.caption.weight(.medium)).foregroundStyle(Theme.ink2)
+                    }.buttonStyle(.plain)
+                    if showDone { VStack(spacing: 0) { ForEach(done) { ReminderRow(item: $0) } } }
+                }
+            case .unknown:
+                Text("Set reminders on this box. They're kept in Apple Reminders, so they alert you on your Mac and iPhone.")
+                    .font(T.caption).foregroundStyle(Theme.ink2).fixedSize(horizontal: false, vertical: true)
+                Button { Task { if await reminders.connect() { _ = reminders.importLocalTasks(from: store) } } } label: {
+                    Label("Connect Apple Reminders", systemImage: "link")
+                }.buttonStyle(.softCompact)
+            case .denied:
+                Text("Context isn't allowed to use Apple Reminders.").font(T.caption).foregroundStyle(Theme.ink2)
+                Button("Open System Settings") { reminders.openPrivacySettings() }.buttonStyle(.softCompact)
+            }
+        }
     }
 }
 
@@ -113,7 +170,12 @@ struct ReminderComposer: View {
     @ObservedObject private var reminders = RemindersService.shared
     @Environment(\.pageTint) var tint
     let projectID: UUID
+    /// The map box new reminders go on.
+    var boxID: UUID? = nil
+    /// The smaller version for a box's details, with a field for a note once something is typed.
+    var compact = false
     @State private var text = ""
+    @State private var note = ""
     @State private var pickedDue: Date?
     @State private var pickedHasTime = false
     @State private var choosing = false
@@ -126,31 +188,39 @@ struct ReminderComposer: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "plus.circle.fill").font(.system(size: 17)).foregroundStyle(tint)
-            TextField("Add a reminder, e.g. “Renew domain next friday”", text: $text)
-                .textFieldStyle(.plain).font(T.body).focused($focused).onSubmit(add)
-            if let due {
-                let label = DueText.describe(due.date, hasTime: due.hasTime, now: store.clock)
-                Text(label.text).font(.system(size: 12, weight: .semibold)).foregroundStyle(label.color)
-                    .padding(.horizontal, 8).padding(.vertical, 3).background(label.color.opacity(0.12), in: Capsule())
-                    .help(pickedDue == nil ? "Recognised from what you typed" : "Chosen date")
-            }
-            IconButton(icon: "calendar", help: "Choose a date", size: 29, tint: pickedDue == nil ? Theme.ink2 : tint) { choosing = true }
-                .popover(isPresented: $choosing, arrowEdge: .bottom) {
-                    DueChooser(due: $pickedDue, hasTime: $pickedHasTime, close: { choosing = false })
+        VStack(alignment: .trailing, spacing: 6) {
+            HStack(spacing: compact ? 7 : 10) {
+                Image(systemName: "plus.circle.fill").font(.system(size: compact ? 15 : 17)).foregroundStyle(tint)
+                TextField(compact ? "Add a reminder…" : "Add a reminder, e.g. “Renew domain next friday”", text: $text)
+                    .textFieldStyle(.plain).font(compact ? T.small : T.body).focused($focused).onSubmit(add)
+                if let due {
+                    let label = DueText.describe(due.date, hasTime: due.hasTime, now: store.clock)
+                    Text(label.text).font(.system(size: compact ? 11 : 12, weight: .semibold)).foregroundStyle(label.color).lineLimit(1)
+                        .padding(.horizontal, compact ? 6 : 8).padding(.vertical, 3).background(label.color.opacity(0.12), in: Capsule())
+                        .help(pickedDue == nil ? "Recognised from what you typed" : "Chosen date")
                 }
+                IconButton(icon: "calendar", help: "Choose a date", size: compact ? 26 : 29, tint: pickedDue == nil ? Theme.ink2 : tint) { choosing = true }
+                    .popover(isPresented: $choosing, arrowEdge: .bottom) {
+                        DueChooser(due: $pickedDue, hasTime: $pickedHasTime, close: { choosing = false })
+                    }
+            }
+            if compact && !text.trimmingCharacters(in: .whitespaces).isEmpty {
+                TextField("Note (optional)", text: $note, axis: .vertical)
+                    .textFieldStyle(.plain).font(T.small).foregroundStyle(Theme.ink2).lineLimit(1...4).onSubmit(add)
+                    .padding(.leading, 22)
+                Button("Add Reminder", action: add).buttonStyle(.primaryCompact)
+            }
         }
-        .padding(.horizontal, 14).padding(.vertical, 12)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(focused ? tint.opacity(0.6) : Theme.border))
+        .padding(.horizontal, compact ? 10 : 14).padding(.vertical, compact ? 7 : 12)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: compact ? 10 : 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: compact ? 10 : 12, style: .continuous).strokeBorder(focused ? tint.opacity(0.6) : Theme.border))
     }
 
     func add() {
         let title = pickedDue == nil ? parsed.title : text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { return }
-        reminders.add(title, due: due?.date, hasTime: due?.hasTime ?? false, to: projectID, in: store)
-        text = ""; pickedDue = nil; pickedHasTime = false
+        reminders.add(title, notes: note, due: due?.date, hasTime: due?.hasTime ?? false, to: projectID, box: boxID, in: store)
+        text = ""; note = ""; pickedDue = nil; pickedHasTime = false
         focused = true
     }
 }
@@ -238,7 +308,7 @@ struct ReminderRow: View {
             }
             Spacer(minLength: 8)
             if let project {
-                Button { store.lastSection[project.id] = .reminders; navigate(.project(project.id)) } label: {
+                Button { navigate(.project(project.id)) } label: {
                     HStack(spacing: 5) { ProjectIcon(project: project, size: 14); Text(project.name) }
                         .font(T.caption).foregroundStyle(Theme.ink2).lineLimit(1)
                 }.buttonStyle(.plain).help("Open \(project.name)")

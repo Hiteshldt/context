@@ -11,14 +11,13 @@ enum ProjectStatus: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-/// The two areas of a project. The map comes first: it's the project at a glance, links included.
+/// The areas of a project. There's one, the map: it's the project at a glance, with its links and reminders on its boxes.
 enum ProjectTab: String, CaseIterable, Identifiable {
-    case map = "Map", reminders = "Reminders"
+    case map = "Map"
     var id: String { rawValue }
     var icon: String {
         switch self {
         case .map: return "point.3.connected.trianglepath.dotted"
-        case .reminders: return "checklist"
         }
     }
 }

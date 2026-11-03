@@ -49,7 +49,6 @@ struct HomeView: View {
                 }
                 launcherBar
                 projects
-                remindersPanel
             }
         }
     }
@@ -83,23 +82,6 @@ struct HomeView: View {
             }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 16, alignment: .top)], spacing: 16) {
                 ForEach(sorted) { ProjectTile(project: $0) }
-            }
-        }
-    }
-
-    @ViewBuilder var remindersPanel: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "Reminders", icon: "checklist", tint: Theme.today)
-            switch reminders.access {
-            case .granted:
-                if dueSoon.isEmpty {
-                    Text("Nothing due this week. Add reminders in a project's Reminders tab; they sync with Apple Reminders.")
-                        .font(T.small).foregroundStyle(Theme.ink2).fixedSize(horizontal: false, vertical: true).padding(.horizontal, 4)
-                } else {
-                    Card(padding: 6) { VStack(spacing: 0) { ForEach(dueSoon.prefix(12), id: \.0.id) { ReminderRow(item: $0.0, project: $0.1) } } }
-                }
-            case .unknown: ConnectRemindersCard(compact: true)
-            case .denied: ConnectRemindersCard(denied: true, compact: true)
             }
         }
     }
@@ -180,7 +162,7 @@ struct WelcomeView: View {
             HStack(alignment: .top, spacing: 16) {
                 step("point.3.connected.trianglepath.dotted", "Map", "Draw the people, apps, and services behind a project, group them, and keep notes on each box.")
                 step("link", "Links", "Dashboards, repos, social accounts, and docs, each with its real logo. Open any of them with ⌘K.")
-                step("checklist", "Reminders", "Each project gets a list in Apple Reminders, so reminders reach your iPhone too.")
+                step("bell", "Reminders", "Set them on any box on the map. They're kept in Apple Reminders, so they reach your iPhone too.")
             }
             Card {
                 HStack(spacing: 16) {

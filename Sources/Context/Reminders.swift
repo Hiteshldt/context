@@ -101,6 +101,18 @@ final class RemindersService: ObservableObject {
         return items[id] ?? []
     }
 
+    /// The project's reminders split by where they show: on each map box, or not on any box (made before reminders
+    /// lived on boxes, in Apple Reminders directly, or on a box that's since been removed).
+    func byBox(for project: Project, in workspace: Workspace) -> (boxes: [UUID: [ReminderItem]], loose: [ReminderItem]) {
+        let boxIDs = Set(workspace.diagrams.filter { $0.projectID == project.id }.flatMap { $0.nodes.map(\.id) })
+        var boxes: [UUID: [ReminderItem]] = [:]
+        var loose: [ReminderItem] = []
+        for item in items(for: project) {
+            if let box = item.boxID, boxIDs.contains(box) { boxes[box, default: []].append(item) } else { loose.append(item) }
+        }
+        return (boxes, loose)
+    }
+
     /// Overdue and due-today reminders across the given projects.
     func attentionCount(for project: Project, now: Date = Date()) -> Int {
         items(for: project).filter { $0.needsAttention(now: now) }.count
@@ -155,13 +167,17 @@ final class RemindersService: ObservableObject {
 
     // MARK: Writing
 
-    func add(_ title: String, notes: String = "", due: Date?, hasTime: Bool, repeats: RepeatOption = .never, to projectID: UUID, in workspace: Store) {
+    /// Adds a reminder to the project's list, on a map box when `box` is given.
+    func add(_ title: String, notes: String = "", due: Date?, hasTime: Bool, repeats: RepeatOption = .never, to projectID: UUID,
+             box: UUID? = nil, in workspace: Store) {
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { return }
         do {
             let listID = try ensureList(for: projectID, in: workspace)
             if demo {
-                items[listID, default: []].append(ReminderItem(listID: listID, title: title, notes: notes, due: due, hasTime: hasTime, repeats: repeats, createdAt: Date()))
+                items[listID, default: []].append(ReminderItem(listID: listID, title: title, notes: notes, due: due, hasTime: hasTime, repeats: repeats,
+                                                               createdAt: Date(), boxID: box))
                 return
             }
             guard let calendar = store.calendar(withIdentifier: listID) else { return }
@@ -169,6 +185,7 @@ final class RemindersService: ObservableObject {
             reminder.calendar = calendar
             reminder.title = title
             reminder.notes = notes.isEmpty ? nil : notes
+            reminder.url = box.map(ReminderItem.boxURL)
             apply(due: due, hasTime: hasTime, repeats: repeats, to: reminder)
             try store.save(reminder, commit: true)
             reload()

@@ -15,6 +15,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     func applicationWillTerminate(_ notification: Notification) { Self.onTerminate?() }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+    /// `context://box/…` links, which box reminders carry in Apple Reminders: open that box.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            guard let box = ReminderItem.boxID(from: url) else { continue }
+            MainWindow.show()
+            NotificationCenter.default.post(name: .contextOpenBox, object: box)
+        }
+    }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag { MainWindow.show() }
         return true

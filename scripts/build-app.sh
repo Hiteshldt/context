@@ -28,6 +28,10 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleVersion</key><string>10</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSHighResolutionCapable</key><true/>
+<key>CFBundleURLTypes</key><array><dict>
+  <key>CFBundleURLName</key><string>Context map box</string>
+  <key>CFBundleURLSchemes</key><array><string>context</string></array>
+</dict></array>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>NSHumanReadableCopyright</key><string>Personal local workspace</string>
 <key>NSRemindersFullAccessUsageDescription</key><string>Context keeps each project's reminders in its own list in Apple Reminders, so they sync to your iPhone and notify you everywhere.</string>
