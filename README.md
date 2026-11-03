@@ -88,6 +88,7 @@ The first time you open a project's Reminders tab, click **Connect Apple Reminde
 | ⌘K | Search and jump to anything |
 | ⌃⌥Space | Same, from any app |
 | ⌘1 · ⌘2 | Map · Reminders |
+| ⌘[ · ⌘] | Back · Forward (or swipe sideways on the trackpad, or use a mouse's side buttons) |
 | ⇧⌘H | Home |
 | ⌘N | New link in the current project |
 | ⇧⌘N | New project |

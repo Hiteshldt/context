@@ -153,8 +153,10 @@ struct SoftButtonStyle: ButtonStyle {
     }
 }
 
-/// A square icon button with a hover background.
+/// A square icon button with a hover background. `size` sets the icon; the button is never smaller
+/// than `minimumSize`, so small icons stay easy to click.
 struct IconButton: View {
+    static let minimumSize: CGFloat = 28
     let icon: String
     var help: String
     var size: CGFloat = 28
@@ -162,13 +164,37 @@ struct IconButton: View {
     let action: () -> Void
     @State private var hovering = false
     var body: some View {
-        Button(action: action) {
-            Image(systemName: icon).font(.system(size: size * 0.48, weight: .medium)).foregroundStyle(tint)
-                .frame(width: size, height: size)
-                .background(hovering ? Theme.hover : .clear, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain).onHover { hovering = $0 }.help(help).accessibilityLabel(help)
+        Button(action: action) { IconFace(icon: icon, size: size, tint: tint, hovering: hovering) }
+            .buttonStyle(.plain).onHover { hovering = $0 }.help(help).accessibilityLabel(help)
+    }
+}
+
+/// A menu that looks like an `IconButton` and is just as easy to click.
+struct IconMenu<Content: View>: View {
+    let icon: String
+    var help: String
+    var size: CGFloat = 28
+    var tint: Color = Theme.ink2
+    @ViewBuilder let content: () -> Content
+    @State private var hovering = false
+    var body: some View {
+        Menu(content: content) { IconFace(icon: icon, size: size, tint: tint, hovering: hovering) }
+            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+            .onHover { hovering = $0 }.help(help).accessibilityLabel(help)
+    }
+}
+
+private struct IconFace: View {
+    let icon: String
+    let size: CGFloat
+    let tint: Color
+    let hovering: Bool
+    var body: some View {
+        let side = max(size, IconButton.minimumSize)
+        Image(systemName: icon).font(.system(size: size * 0.48, weight: .medium)).foregroundStyle(tint)
+            .frame(width: side, height: side)
+            .background(hovering ? Theme.hover : .clear, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .contentShape(Rectangle())
     }
 }
 

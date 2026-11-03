@@ -78,6 +78,8 @@ struct ContextApp: App {
                 Group {
                     Button("Search or Jump To…") { post(.contextShowLauncher) }.keyboardShortcut("k")
                     Button("Home") { post(.contextShowHome) }.keyboardShortcut("h", modifiers: [.command, .shift])
+                    Button("Back") { post(.contextGoBack) }.keyboardShortcut("[")
+                    Button("Forward") { post(.contextGoForward) }.keyboardShortcut("]")
                     Divider()
                     ForEach(Array(ProjectTab.allCases.enumerated()), id: \.element) { index, tab in
                         Button(tab.rawValue) { MainWindow.show(); NotificationCenter.default.post(name: .contextShowTab, object: tab) }

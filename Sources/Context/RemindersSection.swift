@@ -136,8 +136,7 @@ struct ReminderComposer: View {
                     .padding(.horizontal, 8).padding(.vertical, 3).background(label.color.opacity(0.12), in: Capsule())
                     .help(pickedDue == nil ? "Recognised from what you typed" : "Chosen date")
             }
-            Button { choosing = true } label: { Image(systemName: "calendar").font(.system(size: 14)).foregroundStyle(pickedDue == nil ? Theme.ink2 : tint) }
-                .buttonStyle(.plain).help("Choose a date")
+            IconButton(icon: "calendar", help: "Choose a date", size: 29, tint: pickedDue == nil ? Theme.ink2 : tint) { choosing = true }
                 .popover(isPresented: $choosing, arrowEdge: .bottom) {
                     DueChooser(due: $pickedDue, hasTime: $pickedHasTime, close: { choosing = false })
                 }

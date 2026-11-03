@@ -158,7 +158,7 @@ struct EntryEditor: View {
                     if entry.kind != .note && entry.kind != .prompt {
                         HStack {
                             TextField(categoryLabel, text: $entry.category, prompt: Text(entry.kind == .social ? "Pick one or type any platform" : "optional"))
-                            Menu {
+                            IconMenu(icon: "chevron.down", help: "Suggestions", size: 24) {
                                 ForEach(categorySuggestions, id: \.self) { suggestion in
                                     Button { entry.category = suggestion } label: {
                                         if let brand = BrandCatalog.named(suggestion) {
@@ -166,8 +166,7 @@ struct EntryEditor: View {
                                         } else { Text(suggestion) }
                                     }
                                 }
-                            } label: { Image(systemName: "chevron.down") }
-                                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                            }
                         }
                     }
                     if let brand = BrandCatalog.brand(for: entry) {
@@ -338,10 +337,10 @@ struct CredentialRow: View {
                     Button(revealed == nil ? "Reveal" : "Hide") { revealed == nil ? reveal() : (revealed = nil) }.controlSize(.small)
                     Button("Copy") { copy() }.controlSize(.small)
                 }
-                Menu {
+                IconMenu(icon: "ellipsis", help: "More", size: 26) {
                     Button("Replace Secret…") { replacing = true }
                     Button("Remove", role: .destructive, action: remove)
-                } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                }
             }
             if replacing {
                 HStack {

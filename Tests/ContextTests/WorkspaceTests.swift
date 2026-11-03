@@ -358,6 +358,36 @@ final class WorkspaceTests {
         XCTAssertNil(DiagramLayout.snap(CGPoint(x: 204, y: 333), for: other.id, among: [other]).guideX)
     }
 
+    func testBackAndForwardLikeABrowser() {
+        var history = NavigationHistory<String>()
+        XCTAssertNil(history.goBack(from: "home"))
+        history.leave("home")             // home → a
+        history.leave("a")                // a → b
+        XCTAssertEqual(history.goBack(from: "b"), "a")
+        XCTAssertEqual(history.goBack(from: "a"), "home")
+        XCTAssertNil(history.goBack(from: "home"))
+        XCTAssertEqual(history.goForward(from: "home"), "a")
+        XCTAssertEqual(history.goForward(from: "a"), "b")
+        XCTAssertNil(history.goForward(from: "b"))
+        // Going somewhere new clears the way forward.
+        _ = history.goBack(from: "b")
+        history.leave("a")                // a → c
+        XCTAssertNil(history.goForward(from: "c"))
+        XCTAssertEqual(history.goBack(from: "c"), "a")
+        // Pages that no longer exist (a deleted project) are skipped.
+        var skipping = NavigationHistory<String>()
+        skipping.leave("home"); skipping.leave("deleted"); skipping.leave("a")
+        XCTAssertEqual(skipping.goBack(from: "b", exists: { $0 != "deleted" }), "a")
+        XCTAssertEqual(skipping.goBack(from: "a", exists: { $0 != "deleted" }), "home")
+        // Visiting the same page twice in a row is one step, and history stays bounded.
+        var repeats = NavigationHistory<Int>()
+        repeats.limit = 3
+        repeats.leave(1); repeats.leave(1)
+        XCTAssertEqual(repeats.back, [1])
+        for page in 2...9 { repeats.leave(page) }
+        XCTAssertEqual(repeats.back, [7, 8, 9])
+    }
+
     func testPastedLinksGuessTheirKindAndName() {
         let project = UUID()
         let repo = try! XCTUnwrap(Entry.quick(url: "github.com/acme/web", projectID: project))
@@ -678,6 +708,7 @@ struct TestRunner {
             ("testMapConnectionsUseFacingSidesAndSpreadOut", { tests.testMapConnectionsUseFacingSidesAndSpreadOut() }),
             ("testDraggedBoxesLineUpWithOthers", { tests.testDraggedBoxesLineUpWithOthers() }),
             ("testPastedLinksGuessTheirKindAndName", { tests.testPastedLinksGuessTheirKindAndName() }),
+            ("testBackAndForwardLikeABrowser", { tests.testBackAndForwardLikeABrowser() }),
             ("testLauncherRanking", { tests.testLauncherRanking() }),
             ("testBackupWriterKeepsOneFilePerDayAndPrunes", { try tests.testBackupWriterKeepsOneFilePerDayAndPrunes() }),
             ("testCloudFolderDetection", { try tests.testCloudFolderDetection() }),

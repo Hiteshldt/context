@@ -15,6 +15,8 @@ extension Notification.Name {
     static let contextShowTab = Notification.Name("ContextShowTab")
     /// Carries a `LauncherTarget` chosen outside the main window (the menu bar).
     static let contextOpenTarget = Notification.Name("ContextOpenTarget")
+    static let contextGoBack = Notification.Name("ContextGoBack")
+    static let contextGoForward = Notification.Name("ContextGoForward")
 }
 
 struct ContentView: View {
@@ -24,6 +26,10 @@ struct ContentView: View {
     @State private var route: Route
     @State private var sheet: SheetRoute?
     @State private var showLauncher: Bool
+    @State private var history = NavigationHistory<Route>()
+    /// Set while going back or forward, so that step isn't recorded as a new visit.
+    @State private var traversing = false
+    @State private var gestures = WindowGestures()
 
     init(initialRoute: Route = .home, showLauncher: Bool = false) {
         _route = State(initialValue: initialRoute)
@@ -36,6 +42,26 @@ struct ContentView: View {
     }
 
     var body: some View {
+        withHistory(layout)
+    }
+
+    /// Back and forward: remembers each page left, and follows the Go menu, trackpad swipes, and mouse side buttons.
+    func withHistory<V: View>(_ content: V) -> some View {
+        content
+            .onChange(of: route) { old, _ in
+                if traversing { traversing = false } else { history.leave(old) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .contextGoBack)) { _ in goBack() }
+            .onReceive(NotificationCenter.default.publisher(for: .contextGoForward)) { _ in goForward() }
+            .onAppear {
+                gestures.back = goBack
+                gestures.forward = goForward
+                gestures.install()
+            }
+            .onDisappear { gestures.remove() }
+    }
+
+    var layout: some View {
         HStack(spacing: 0) {
             SidebarView(route: $route, openLauncher: { showLauncher = true })
                 .frame(width: 250)
@@ -102,6 +128,23 @@ struct ContentView: View {
         case .entry(let e): return store.project(e.projectID).map { Theme.color($0.color) } ?? tint
         case .backup: return tint
         }
+    }
+
+    func goBack() {
+        guard sheet == nil, !showLauncher, let page = history.goBack(from: route, exists: exists) else { return }
+        traversing = true
+        route = page
+    }
+
+    func goForward() {
+        guard sheet == nil, !showLauncher, let page = history.goForward(from: route, exists: exists) else { return }
+        traversing = true
+        route = page
+    }
+
+    func exists(_ page: Route) -> Bool {
+        if case .project(let id) = page { return store.project(id) != nil }
+        return true
     }
 
     /// The project new items should go to: the one on screen, else the most recently used.
@@ -253,7 +296,7 @@ struct SidebarFooter: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 0) {
             Button { present(.backup) } label: {
                 HStack(spacing: 9) {
                     Image(systemName: backupIcon).font(.system(size: 15)).foregroundStyle(backupColor).frame(width: 20)
@@ -271,7 +314,7 @@ struct SidebarFooter: View {
             if let url = AppLinks.donate {
                 IconButton(icon: "heart.fill", help: "Support Context on Ko-fi", size: 24, tint: Theme.color("rose")) { NSWorkspace.shared.open(url) }
             }
-            Menu {
+            IconMenu(icon: "gearshape", help: "Settings", size: 26) {
                 Picker("Appearance", selection: $appearance) {
                     ForEach(AppAppearance.allCases) { Text($0.name).tag($0.rawValue) }
                 }
@@ -298,10 +341,9 @@ struct SidebarFooter: View {
                 if AppLinks.repository != nil || AppLinks.donate != nil { Divider() }
                 if let url = AppLinks.repository { Button { NSWorkspace.shared.open(url) } label: { Label("Context on GitHub", systemImage: "chevron.left.forwardslash.chevron.right") } }
                 if let url = AppLinks.donate { Button { NSWorkspace.shared.open(url) } label: { Label("Support Context on Ko-fi", systemImage: "heart.fill") } }
-            } label: { Image(systemName: "gearshape").foregroundStyle(Theme.ink2) }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("Settings").padding(.leading, 3)
+            }
         }
-        .padding(.leading, 12).padding(.trailing, 10).padding(.vertical, 11)
+        .padding(.leading, 12).padding(.trailing, 8).padding(.vertical, 9)
     }
 
     func connectReminders() async {

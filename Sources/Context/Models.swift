@@ -780,6 +780,36 @@ func webURL(_ input: String) -> URL? {
     return url
 }
 
+/// Back and forward through the pages you've visited, like a browser.
+struct NavigationHistory<Page: Equatable> {
+    private(set) var back: [Page] = []
+    private(set) var forward: [Page] = []
+    var limit = 50
+
+    /// Records leaving `page` for a new one. Going somewhere new clears the way forward.
+    mutating func leave(_ page: Page) {
+        if back.last != page { back.append(page) }
+        if back.count > limit { back.removeFirst(back.count - limit) }
+        forward.removeAll()
+    }
+
+    /// The page before `current`, skipping any that no longer exist (such as a deleted project).
+    mutating func goBack(from current: Page, exists: (Page) -> Bool = { _ in true }) -> Page? {
+        while let page = back.popLast() {
+            if page != current && exists(page) { forward.append(current); return page }
+        }
+        return nil
+    }
+
+    /// The page after `current`, skipping any that no longer exist.
+    mutating func goForward(from current: Page, exists: (Page) -> Bool = { _ in true }) -> Page? {
+        while let page = forward.popLast() {
+            if page != current && exists(page) { back.append(current); return page }
+        }
+        return nil
+    }
+}
+
 extension KeyedDecodingContainer {
     /// Decodes an optional field, falling back to a default when absent. Type mismatches still throw.
     func value<T: Decodable>(_ key: Key, _ fallback: @autoclosure () -> T) throws -> T {

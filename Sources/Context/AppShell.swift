@@ -71,13 +71,90 @@ struct MenuBarPanel: View {
                 }
                 Spacer()
                 Button("Open Context") { NSApp.keyWindow?.close(); MainWindow.show() }.buttonStyle(.softCompact)
-                Button { NSApp.terminate(nil) } label: { Image(systemName: "power") }.buttonStyle(.plain).foregroundStyle(Theme.ink2).help("Quit Context")
+                IconButton(icon: "power", help: "Quit Context", size: 26) { NSApp.terminate(nil) }
             }
             .font(T.small)
             .padding(.horizontal, 14).padding(.vertical, 10)
         }
         .frame(width: 400)
         .background(Theme.card)
+    }
+}
+
+/// Mouse and trackpad behaviour for the main window, matching other Mac apps:
+/// - a click acts straight away, even when Context was behind another app (instead of only bringing the window forward);
+/// - swiping sideways (two or three fingers, per the trackpad setting) or a mouse's side buttons go back and forward.
+@MainActor
+final class WindowGestures {
+    var back: () -> Void = {}
+    var forward: () -> Void = {}
+    private var monitor: Any?
+    /// How far the current trackpad scroll has gone, or nil when it can't be a page swipe.
+    private var swipe: CGSize?
+
+    func install() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseUp, .scrollWheel, .swipe]) { [weak self] event in
+            self?.handle(event, in: event.window) ?? event
+        }
+    }
+
+    func remove() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+    }
+
+    func handle(_ event: NSEvent, in window: NSWindow?) -> NSEvent? {
+        // Only the main window: not sheets, popovers, menus, or the menu bar panel.
+        guard let window, window.canBecomeMain, window.attachedSheet == nil else { return event }
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown:
+            if !window.isKeyWindow { window.makeKeyAndOrderFront(nil) }
+        case .otherMouseUp where event.buttonNumber == 3:
+            back(); return nil
+        case .otherMouseUp where event.buttonNumber == 4:
+            forward(); return nil
+        case .swipe:
+            // Positive is the swipe Safari treats as Back.
+            if event.deltaX > 0 { back() } else if event.deltaX < 0 { forward() }
+        case .scrollWheel:
+            trackSwipe(event, in: window)
+        default: break
+        }
+        return event
+    }
+
+    /// With "Swipe between pages" set to two fingers, page swipes arrive as scrolling. A mostly sideways scroll that
+    /// starts over something that can't scroll sideways itself (so not the map) goes back or forward when it ends.
+    private func trackSwipe(_ event: NSEvent, in window: NSWindow) {
+        guard NSEvent.isSwipeTrackingFromScrollEventsEnabled, event.hasPreciseScrollingDeltas else { return }
+        if event.phase == .began {
+            let view = window.contentView?.superview?.hitTest(event.locationInWindow)
+            swipe = Self.scrollsSideways(view) ? nil : .zero
+        }
+        guard var total = swipe, !event.phase.isEmpty else { return }
+        total.width += event.scrollingDeltaX
+        total.height += event.scrollingDeltaY
+        swipe = total
+        guard event.phase == .ended || event.phase == .cancelled else { return }
+        swipe = nil
+        guard event.phase == .ended, abs(total.width) > 60, abs(total.width) > abs(total.height) * 2 else { return }
+        // Fingers moving right go back, whichever way the user has scrolling set to run.
+        let fingersRight = (total.width > 0) == event.isDirectionInvertedFromDevice
+        if fingersRight { back() } else { forward() }
+    }
+
+    /// Whether `view` sits in something that scrolls sideways, which should get sideways scrolls instead.
+    static func scrollsSideways(_ view: NSView?) -> Bool {
+        var current = view
+        while let candidate = current {
+            if let scroll = candidate as? NSScrollView,
+               scroll.hasHorizontalScroller || (scroll.documentView?.frame.width ?? 0) > scroll.contentView.bounds.width + 1 {
+                return true
+            }
+            current = candidate.superview
+        }
+        return false
     }
 }
 
