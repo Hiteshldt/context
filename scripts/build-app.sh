@@ -41,7 +41,8 @@ IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Ap
 codesign --force --sign "${IDENTITY:--}" "$APP"
 echo "Built: $APP"
 
-# `zsh scripts/build-app.sh --install` also replaces /Applications/Context.app (quitting the running copy first).
+# `zsh scripts/build-app.sh --install` also replaces /Applications/Context.app (quitting the running copy first),
+# then removes the build copy so Spotlight and Launchpad don't list Context twice.
 if [[ "${1:-}" == "--install" ]]; then
   osascript -e 'tell application id "local.context.workspace" to quit' >/dev/null 2>&1 || true
   sleep 2
@@ -49,6 +50,7 @@ if [[ "${1:-}" == "--install" ]]; then
   ditto "$APP" /Applications/Context.app.new
   rm -rf /Applications/Context.app
   mv /Applications/Context.app.new /Applications/Context.app
+  rm -rf "$APP"
   echo "Installed: /Applications/Context.app"
   open /Applications/Context.app
 fi

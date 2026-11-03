@@ -61,7 +61,7 @@ You need Apple's Swift command-line tools (`xcode-select --install`).
 ```sh
 git clone https://github.com/Hiteshldt/context.git
 cd context
-zsh scripts/build-app.sh --install   # builds, copies to /Applications, and opens it
+zsh scripts/build-app.sh --install   # builds, moves it to /Applications, and opens it
 ```
 
 ## Map
