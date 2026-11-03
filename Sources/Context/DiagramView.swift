@@ -67,7 +67,8 @@ struct DiagramEditor: View {
     @State private var marquee: CGRect?
     @State private var backgroundPanning = false
     /// Where a double-click asked to add something.
-    @State private var quickAdd: CGPoint?
+    @State private var quickAdd: CGPoint = .zero
+    @State private var showingQuickAdd = false
     @State private var showLinks = false
     /// A link being created in the editor sheet, to be placed on the map once it's saved.
     @State private var pendingPlacement: (id: UUID, at: CGPoint)?
@@ -206,7 +207,7 @@ struct DiagramEditor: View {
         return ZStack(alignment: .topLeading) {
             DotGrid()
                 .contentShape(Rectangle())
-                .onTapGesture(count: 2) { location in clearSelection(); quickAdd = location }
+                .onTapGesture(count: 2) { location in openQuickAdd(at: location) }
                 .simultaneousGesture(TapGesture().onEnded { if !NSEvent.modifierFlags.contains(.shift) { clearSelection() } })
                 .gesture(backgroundDrag)
             ForEach(diagram.groups) { group in groupView(group, part: .frame) }
@@ -223,18 +224,18 @@ struct DiagramEditor: View {
                     .frame(width: marquee.width, height: marquee.height).position(x: marquee.midX, y: marquee.midY)
                     .allowsHitTesting(false)
             }
-            if let point = quickAdd {
-                Color.clear.frame(width: 1, height: 1).position(point)
-                    .popover(isPresented: Binding(get: { quickAdd != nil }, set: { if !$0 { quickAdd = nil } }), arrowEdge: .bottom) {
-                        QuickAddPanel(projectID: diagram.projectID, onMap: Set(diagram.nodes.compactMap(\.entryID)),
-                                      addBox: { label, kind in quickAdd = nil; addNode(kind: kind, label: label, at: point) },
-                                      addLink: { entry in quickAdd = nil; if store.save(entry) { addNode(entry: entry, at: point) } },
-                                      place: { entry in quickAdd = nil; addNode(entry: entry, at: point) },
-                                      locate: { entry in quickAdd = nil; locate(entry) },
-                                      detailed: { quickAdd = nil; newLink(at: point) })
-                            .environmentObject(store).environment(\.pageTint, tint)
-                    }
-            }
+            // Always in place (only moved), because a popover can't open from a view that has only just appeared.
+            Color.clear.frame(width: 1, height: 1).position(quickAdd).allowsHitTesting(false)
+                .popover(isPresented: $showingQuickAdd, arrowEdge: .bottom) {
+                    let point = quickAdd
+                    QuickAddPanel(projectID: diagram.projectID, onMap: Set(diagram.nodes.compactMap(\.entryID)),
+                                  addBox: { label, kind in showingQuickAdd = false; addNode(kind: kind, label: label, at: point) },
+                                  addLink: { entry in showingQuickAdd = false; if store.save(entry) { addNode(entry: entry, at: point) } },
+                                  place: { entry in showingQuickAdd = false; addNode(entry: entry, at: point) },
+                                  locate: { entry in showingQuickAdd = false; locate(entry) },
+                                  detailed: { showingQuickAdd = false; newLink(at: point) })
+                        .environmentObject(store).environment(\.pageTint, tint)
+                }
         }
         .coordinateSpace(name: "canvas")
     }
@@ -266,7 +267,7 @@ struct DiagramEditor: View {
     @ViewBuilder func nodeView(_ node: DiagramNode) -> some View {
         let offset = offset(of: node.id)
         DiagramNodeView(node: node, info: info(node), selected: selectedNodes.contains(node.id), editing: editingNode == node.id,
-                        linkTarget: linkTarget == node.id,
+                        linkTarget: linkTarget == node.id, linkSource: linking?.from == node.id,
                         label: Binding(get: { node.label }, set: { setLabel($0, for: node.id) }),
                         onSelect: { selectNode(node.id, extending: NSEvent.modifierFlags.contains(.shift)) },
                         onOpen: { open(node) },
@@ -522,7 +523,6 @@ struct DiagramEditor: View {
             .contextMenu {
                 if let id = hoveredEdge ?? selectedEdge, let edge = diagram.edges.first(where: { $0.id == id }) { edgeMenu(edge) }
             }
-            .help("Click a line to label, restyle, or delete it")
     }
 
     func edgeLabel(_ edge: DiagramEdge, at point: CGPoint) -> some View {
@@ -621,7 +621,15 @@ struct DiagramEditor: View {
     /// The middle of what's currently visible, in canvas coordinates.
     var visibleCenter: CGPoint { viewport.visibleCenter }
 
-    func quickAddAtCenter() { clearSelection(); quickAdd = visibleCenter }
+    func quickAddAtCenter() { openQuickAdd(at: visibleCenter) }
+
+    /// Opens the add panel at a point: the anchor moves there first, and the panel opens once it has.
+    func openQuickAdd(at point: CGPoint) {
+        clearSelection()
+        showingQuickAdd = false
+        quickAdd = point
+        DispatchQueue.main.async { showingQuickAdd = true }
+    }
 
     func fitToContent() {
         if let bounds = DiagramLayout.contentBounds(diagram) { viewport.fit(bounds) }
@@ -1142,6 +1150,8 @@ struct DiagramNodeView: View, Equatable {
     let selected: Bool
     let editing: Bool
     let linkTarget: Bool
+    /// A connection is being dragged out of this box.
+    let linkSource: Bool
     @Binding var label: String
     let onSelect: () -> Void
     let onOpen: () -> Void
@@ -1154,8 +1164,14 @@ struct DiagramNodeView: View, Equatable {
     @FocusState private var focused: Bool
 
     static func == (a: DiagramNodeView, b: DiagramNodeView) -> Bool {
-        a.node == b.node && a.info == b.info && a.selected == b.selected && a.editing == b.editing && a.linkTarget == b.linkTarget
+        a.node == b.node && a.info == b.info && a.selected == b.selected && a.editing == b.editing
+            && a.linkTarget == b.linkTarget && a.linkSource == b.linkSource
     }
+
+    /// How far the handles reach past the box's edges. The box takes clicks and hover that far out at each handle,
+    /// so the pointer can move from the box onto a handle, all of it, without losing it.
+    static let handleReach: CGFloat = 13
+    var showsHandles: Bool { hovering || selected || linkSource }
 
     var size: CGSize { DiagramLayout.size(of: node) }
     var isNote: Bool { node.entryID == nil && node.kind == .note }
@@ -1179,9 +1195,11 @@ struct DiagramNodeView: View, Equatable {
                         .padding(7).accessibilityLabel("Has notes")
                 }
             }
-            .overlay { if hovering || selected { handles } }
+            // Always there, only faded: a drag that started on a handle would be cancelled if the handle went away.
+            .overlay { handles.opacity(showsHandles ? 1 : 0).allowsHitTesting(showsHandles) }
             .help(isNote || notes.isEmpty ? "" : String(notes.prefix(280)))
-            .contentShape(Rectangle())
+            .padding(Self.handleReach)
+            .contentShape(BoxWithHandles(inset: Self.handleReach))
             .onHover { hovering = $0 }
             // Selecting on the first click (rather than waiting to rule out a double-click) opens the details at once.
             .simultaneousGesture(TapGesture().onEnded { onSelect() })
@@ -1206,7 +1224,7 @@ struct DiagramNodeView: View, Equatable {
     var handle: some View {
         Circle().fill(tint).frame(width: 11, height: 11)
             .overlay(Circle().strokeBorder(Theme.card, lineWidth: 2))
-            .padding(7).contentShape(Circle())
+            .padding(Self.handleReach - 5.5).contentShape(Circle())
             .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .named("canvas"))
                 .onChanged { onLink($0.location) }
                 .onEnded { onLinkEnd($0.location) })
@@ -1247,6 +1265,20 @@ struct DiagramNodeView: View, Equatable {
             }
             .padding(.horizontal, 11)
         }
+    }
+}
+
+/// Where a box takes clicks and hover: the box itself, plus a circle at the middle of each side for its handles.
+struct BoxWithHandles: Shape {
+    /// How far the box sits inside the view's frame, which is also each handle's radius.
+    let inset: CGFloat
+    func path(in rect: CGRect) -> Path {
+        let box = rect.insetBy(dx: inset, dy: inset)
+        var area = Path(box)
+        for center in [CGPoint(x: box.midX, y: box.minY), CGPoint(x: box.maxX, y: box.midY), CGPoint(x: box.midX, y: box.maxY), CGPoint(x: box.minX, y: box.midY)] {
+            area = area.union(Path(ellipseIn: CGRect(x: center.x - inset, y: center.y - inset, width: inset * 2, height: inset * 2)))
+        }
+        return area
     }
 }
 
