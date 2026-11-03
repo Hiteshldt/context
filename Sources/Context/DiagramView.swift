@@ -65,6 +65,8 @@ struct DiagramEditor: View {
     @State private var linking: (from: UUID, to: CGPoint)?
     /// Dragging empty space pans; with Shift held it draws a selection rectangle.
     @State private var marquee: CGRect?
+    /// A connection started by clicking a box's ●, waiting for a click on the box to connect to.
+    @State private var connectingFrom: UUID?
     @State private var backgroundPanning = false
     /// Where a double-click asked to add something.
     @State private var quickAdd: CGPoint = .zero
@@ -164,9 +166,10 @@ struct DiagramEditor: View {
     }
 
     var hint: String {
+        if connectingFrom != nil { return "Click the box to connect to · Esc or a click on empty space cancels" }
         if diagram.nodes.isEmpty { return "Double-click anywhere to add a box or a link" }
         if selectedNodes.count > 1 { return "\(selectedNodes.count) boxes selected · drag one to move them all · Delete removes them" }
-        return "Double-click to add · drag empty space to move · Shift-drag to select several · drag a ● onto another box to connect"
+        return "Double-click to add · drag empty space to move · Shift-drag to select several · click or drag a ● to connect"
     }
 
     var emptyHint: some View {
@@ -205,14 +208,16 @@ struct DiagramEditor: View {
         let routes = DiagramLayout.routes(for: diagram, rects: rects)
         let hitPaths = routes.mapValues { path($0).cgPath.copy(strokingWithWidth: 12, lineCap: .round, lineJoin: .round, miterLimit: 1) }
         return ZStack(alignment: .topLeading) {
+            // The map itself, under everything. It also takes clicks and hover on lines, found by position: a
+            // full-size layer for the lines on top would catch the pointer everywhere and swallow every click.
             DotGrid()
                 .contentShape(Rectangle())
-                .onTapGesture(count: 2) { location in openQuickAdd(at: location) }
-                .simultaneousGesture(TapGesture().onEnded { if !NSEvent.modifierFlags.contains(.shift) { clearSelection() } })
+                .onContinuousHover { phase in mapHover(phase, hitPaths) }
+                .simultaneousGesture(SpatialTapGesture().onEnded { tap in mapClick(at: tap.location, hitPaths) })
                 .gesture(backgroundDrag)
+                .contextMenu { if let id = hoveredEdge, let edge = diagram.edges.first(where: { $0.id == id }) { edgeMenu(edge) } }
             ForEach(diagram.groups) { group in groupView(group, part: .frame) }
             edgeLayer(routes, rects: rects)
-            edgeHits(hitPaths)
             ForEach(diagram.groups) { group in groupView(group, part: .controls) }
             ForEach(diagram.edges.filter { !$0.label.isEmpty }) { edge in
                 if let route = routes[edge.id] { edgeLabel(edge, at: route.labelPoint) }
@@ -225,7 +230,9 @@ struct DiagramEditor: View {
                     .allowsHitTesting(false)
             }
             // Always in place (only moved), because a popover can't open from a view that has only just appeared.
-            Color.clear.frame(width: 1, height: 1).position(quickAdd).allowsHitTesting(false)
+            // The popover goes on the 1-point anchor itself: after `.position` the view fills the whole map,
+            // and the panel would open at the map's far edge, off screen.
+            Color.clear.frame(width: 1, height: 1).allowsHitTesting(false)
                 .popover(isPresented: $showingQuickAdd, arrowEdge: .bottom) {
                     let point = quickAdd
                     QuickAddPanel(projectID: diagram.projectID, onMap: Set(diagram.nodes.compactMap(\.entryID)),
@@ -236,6 +243,7 @@ struct DiagramEditor: View {
                                   detailed: { showingQuickAdd = false; newLink(at: point) })
                         .environmentObject(store).environment(\.pageTint, tint)
                 }
+                .position(quickAdd)
         }
         .coordinateSpace(name: "canvas")
     }
@@ -269,13 +277,16 @@ struct DiagramEditor: View {
         DiagramNodeView(node: node, info: info(node), selected: selectedNodes.contains(node.id), editing: editingNode == node.id,
                         linkTarget: linkTarget == node.id, linkSource: linking?.from == node.id,
                         label: Binding(get: { node.label }, set: { setLabel($0, for: node.id) }),
-                        onSelect: { selectNode(node.id, extending: NSEvent.modifierFlags.contains(.shift)) },
-                        onOpen: { open(node) },
+                        onSelect: {
+                            if connectingFrom != nil { finishConnecting(to: node.id) } else { selectNode(node.id, extending: NSEvent.modifierFlags.contains(.shift)) }
+                        },
+                        onOpen: { if connectingFrom != nil { finishConnecting(to: node.id) } else { open(node) } },
                         onCommit: { editingNode = nil; save() },
                         onDrag: { drag(node, by: $0) },
                         onDragEnd: { _ in finishDrag() },
                         onLink: { linking = (node.id, $0) },
-                        onLinkEnd: { finishLink(from: node.id, at: $0) })
+                        onLinkEnd: { finishLink(from: node.id, at: $0) },
+                        onLinkTap: { startConnecting(from: node.id) })
             .equatable()
             .position(x: node.x + offset.width, y: node.y + offset.height)
             .contextMenu { nodeMenu(node) }
@@ -508,21 +519,46 @@ struct DiagramEditor: View {
         context.fill(arrow, with: .color(color))
     }
 
-    /// Lines are clickable along their whole length, and highlight under the pointer.
-    func edgeHits(_ hitPaths: [UUID: CGPath]) -> some View {
-        var region = Path()
-        for path in hitPaths.values { region.addPath(Path(path)) }
-        func edge(at point: CGPoint) -> UUID? { diagram.edges.last { hitPaths[$0.id]?.contains(point) == true }?.id }
-        return Color.clear
-            .contentShape(region)
-            .onTapGesture { location in if let id = edge(at: location) { selectEdge(id) } }
-            .onContinuousHover { phase in
-                let id: UUID? = if case .active(let point) = phase { edge(at: point) } else { nil }
-                if id != hoveredEdge { hoveredEdge = id }
-            }
-            .contextMenu {
-                if let id = hoveredEdge ?? selectedEdge, let edge = diagram.edges.first(where: { $0.id == id }) { edgeMenu(edge) }
-            }
+    /// The line under a point, if any. Lines are clickable along their whole length.
+    func line(at point: CGPoint, _ hitPaths: [UUID: CGPath]) -> UUID? {
+        diagram.edges.last { hitPaths[$0.id]?.contains(point) == true }?.id
+    }
+
+    /// Highlights the line under the pointer, and draws a connection being made by clicks out to the pointer.
+    func mapHover(_ phase: HoverPhase, _ hitPaths: [UUID: CGPath]) {
+        guard case .active(let point) = phase else { if hoveredEdge != nil { hoveredEdge = nil }; return }
+        if let from = connectingFrom { linking = (from, point) }
+        let id = line(at: point, hitPaths)
+        if id != hoveredEdge { hoveredEdge = id }
+    }
+
+    /// A click on the map itself: selects the line under it, or on empty space clears the selection, and the second
+    /// click of a double-click opens the add panel. macOS counts the clicks, so this works with tap to click too.
+    func mapClick(at point: CGPoint, _ hitPaths: [UUID: CGPath]) {
+        let clicks = NSApp.currentEvent?.clickCount ?? 1
+        if connectingFrom != nil { cancelConnecting(); return }
+        if let id = line(at: point, hitPaths) { selectEdge(id); return }
+        if clicks == 2 { openQuickAdd(at: point) }
+        else if !NSEvent.modifierFlags.contains(.shift) { clearSelection() }
+    }
+
+    /// Connecting by clicks, for when dragging is awkward (such as with tap to click): clicking a box's ● starts a
+    /// connection that follows the pointer, and clicking another box finishes it.
+    func startConnecting(from id: UUID) {
+        guard let node = diagram.nodes.first(where: { $0.id == id }) else { return }
+        connectingFrom = id
+        linking = (id, CGPoint(x: node.x, y: node.y))
+    }
+
+    func finishConnecting(to id: UUID) {
+        guard let from = connectingFrom, id != from else { return }
+        cancelConnecting()
+        connect(from, id)
+    }
+
+    func cancelConnecting() {
+        connectingFrom = nil
+        linking = nil
     }
 
     func edgeLabel(_ edge: DiagramEdge, at point: CGPoint) -> some View {
@@ -1033,6 +1069,7 @@ struct DiagramEditor: View {
         let typing = window.firstResponder is NSText
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if event.keyCode == 53 { // Escape
+            if connectingFrom != nil { cancelConnecting(); return true }
             if editingNode != nil { window.makeFirstResponder(nil); clearSelection(); return true }
             if typing { return false }
             if hasSelection { clearSelection(); return true }
@@ -1160,6 +1197,8 @@ struct DiagramNodeView: View, Equatable {
     let onDragEnd: (CGSize) -> Void
     let onLink: (CGPoint) -> Void
     let onLinkEnd: (CGPoint) -> Void
+    /// A click (not a drag) on a handle: start connecting by clicks.
+    let onLinkTap: () -> Void
     @State private var hovering = false
     @FocusState private var focused: Bool
 
@@ -1202,8 +1241,10 @@ struct DiagramNodeView: View, Equatable {
             .contentShape(BoxWithHandles(inset: Self.handleReach))
             .onHover { hovering = $0 }
             // Selecting on the first click (rather than waiting to rule out a double-click) opens the details at once.
-            .simultaneousGesture(TapGesture().onEnded { onSelect() })
-            .onTapGesture(count: 2) { onOpen() }
+            // macOS counts the clicks (tap to click included); SwiftUI's own double-tap never fired after a selecting click.
+            .simultaneousGesture(TapGesture().onEnded {
+                if NSApp.currentEvent?.clickCount == 2 { onOpen() } else { onSelect() }
+            })
             .gesture(DragGesture(minimumDistance: 3, coordinateSpace: .named("canvas"))
                 .onChanged { onDrag($0.translation) }
                 .onEnded { onDragEnd($0.translation) })
@@ -1228,7 +1269,8 @@ struct DiagramNodeView: View, Equatable {
             .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .named("canvas"))
                 .onChanged { onLink($0.location) }
                 .onEnded { onLinkEnd($0.location) })
-            .help("Drag onto another box to connect")
+            .simultaneousGesture(TapGesture().onEnded { onLinkTap() })
+            .help("Click, then click another box to connect (or drag onto it)")
     }
 
     @ViewBuilder var content: some View {
