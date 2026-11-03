@@ -5,6 +5,9 @@ export CLANG_MODULE_CACHE_PATH="$PWD/.build/module-cache"
 export SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/module-cache"
 swift build --disable-sandbox -c release
 APP="$PWD/dist/Context.app"
+# When installing, assemble the app where Spotlight never looks (a folder ending in .noindex),
+# so the temporary copy can't show up as a second Context in Apps or Spotlight.
+if [[ "${1:-}" == "--install" ]]; then APP="$PWD/.build/install.noindex/Context.app"; fi
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 # Replace the binary atomically so a copy that's still running isn't corrupted mid-flight.
 cp .build/release/Context "$APP/Contents/MacOS/Context.new"
