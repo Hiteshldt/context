@@ -92,12 +92,13 @@ extension EnvironmentValues {
 enum Route: Hashable { case home, project(UUID) }
 
 enum SheetRoute: Identifiable {
-    case project(Project), entry(Entry), backup
+    case project(Project), entry(Entry), backup, agents
     var id: String {
         switch self {
         case .project(let p): return "project-\(p.id)"
         case .entry(let e): return "entry-\(e.id)"
         case .backup: return "backup"
+        case .agents: return "agents"
         }
     }
 }

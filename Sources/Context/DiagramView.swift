@@ -140,6 +140,7 @@ struct DiagramEditor: View {
         }
         .onAppear {
             if let initialSelection, selectedNodes.isEmpty { selectedNodes = [initialSelection] }
+            bringBoxesOntoCanvas()
             if initiallyShowLinks { showLinks = true }
             installKeys()
         }
@@ -162,6 +163,7 @@ struct DiagramEditor: View {
                 addNode(entry: entry, at: pending.at)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .contextFitMap)) { _ in fitToContent() }
         .onReceive(NotificationCenter.default.publisher(for: .contextShowBox)) { note in
             if let id = note.object as? UUID, let node = diagram.nodes.first(where: { $0.id == id }) { showLinks = false; locateNode(node) }
         }
@@ -182,7 +184,8 @@ struct DiagramEditor: View {
     var hint: String {
         if connectingFrom != nil { return "Click the box to connect to · Esc or a click on empty space cancels" }
         if diagram.nodes.isEmpty { return "Double-click anywhere to add a box or a link" }
-        if selectedNodes.count > 1 { return "\(selectedNodes.count) boxes selected · drag one to move them all · ⌘C copies · Delete removes them" }
+        if selectedNodes.count > 1 { return "\(selectedNodes.count) boxes selected · drag one or use the arrow keys to move them all · ⌘C copies · Delete removes them" }
+        if !selectedNodes.isEmpty { return "Arrow keys move it (⇧ further, ⌥ finely) · Shift-drag keeps it straight · ⌥-drag skips snapping · ⇧/⌘-click selects more" }
         return "Double-click to add · drag to select · scroll or Space-drag to move · click or drag a ● to connect"
     }
 
@@ -269,11 +272,11 @@ struct DiagramEditor: View {
         DragGesture(minimumDistance: 3)
             .onChanged { value in
                 if marquee == nil && !backgroundPanning {
-                    if spaceHeld || NSEvent.modifierFlags.contains(.option) {
+                    if spaceHeld || modifierFlags.contains(.option) {
                         backgroundPanning = true
                     } else {
                         if editingNode != nil { editingNode = nil; save() }
-                        marqueeBase = NSEvent.modifierFlags.contains(.shift) ? selectedNodes : []
+                        marqueeBase = modifierFlags.contains(.shift) ? selectedNodes : []
                         marquee = .zero
                     }
                 }
@@ -306,7 +309,9 @@ struct DiagramEditor: View {
                         linkTarget: linkTarget == node.id, linkSource: linking?.from == node.id, reminder: marks[node.id],
                         label: Binding(get: { node.label }, set: { setLabel($0, for: node.id) }),
                         onSelect: {
-                            if connectingFrom != nil { finishConnecting(to: node.id) } else { selectNode(node.id, extending: NSEvent.modifierFlags.contains(.shift)) }
+                            // Shift- or ⌘-click adds a box to (or takes it out of) the selection, as in draw.io.
+                            let extend = !modifierFlags.intersection([.shift, .command]).isEmpty
+                            if connectingFrom != nil { finishConnecting(to: node.id) } else { selectNode(node.id, extending: extend) }
                         },
                         onOpen: { if connectingFrom != nil { finishConnecting(to: node.id) } else { open(node) } },
                         onCommit: { editingNode = nil; save() },
@@ -374,11 +379,33 @@ struct DiagramEditor: View {
             dragging = selectedNodes.isEmpty ? [node.id] : selectedNodes
         }
         // The box being dragged lines up with the others (or the grid); everything selected moves with it.
-        let target = CGPoint(x: node.x + translation.width, y: node.y + translation.height)
+        // Shift keeps the move straight across or straight down; ⌥ turns snapping off for fine placement.
+        let flags = modifierFlags
+        var move = translation
+        if flags.contains(.shift) { if abs(move.width) >= abs(move.height) { move.height = 0 } else { move.width = 0 } }
+        let target = CGPoint(x: node.x + move.width, y: node.y + move.height)
+        if flags.contains(.option) {
+            dragOffset = move
+            if guideX != nil { guideX = nil }
+            if guideY != nil { guideY = nil }
+            return
+        }
         let snapped = DiagramLayout.snap(target, for: node.id, among: diagram.nodes.filter { !dragging.contains($0.id) })
-        dragOffset = CGSize(width: snapped.point.x - node.x, height: snapped.point.y - node.y)
-        if guideX != snapped.guideX { guideX = snapped.guideX }
-        if guideY != snapped.guideY { guideY = snapped.guideY }
+        var point = snapped.point
+        if flags.contains(.shift) { if move.height == 0 { point.y = node.y } else { point.x = node.x } }
+        dragOffset = CGSize(width: point.x - node.x, height: point.y - node.y)
+        let showX = point.x == snapped.guideX ? snapped.guideX : nil, showY = point.y == snapped.guideY ? snapped.guideY : nil
+        if guideX != showX { guideX = showX }
+        if guideY != showY { guideY = showY }
+    }
+
+    /// Boxes later in the list are drawn on top. Moves the box (and anything selected with it) to the top or bottom.
+    func reorder(_ id: UUID, toFront: Bool) {
+        let ids = selectedNodes.contains(id) ? selectedNodes : [id]
+        let moving = diagram.nodes.filter { ids.contains($0.id) }
+        let others = diagram.nodes.filter { !ids.contains($0.id) }
+        diagram.nodes = toFront ? others + moving : moving + others
+        save()
     }
 
     func finishDrag() {
@@ -386,7 +413,7 @@ struct DiagramEditor: View {
         dragging = []; dragOffset = .zero; guideX = nil; guideY = nil
         guard offset != .zero else { return }
         for index in diagram.nodes.indices where moved.contains(diagram.nodes[index].id) {
-            let point = DiagramLayout.clamp(CGPoint(x: diagram.nodes[index].x + offset.width, y: diagram.nodes[index].y + offset.height))
+            let point = DiagramLayout.clamp(CGPoint(x: diagram.nodes[index].x + offset.width, y: diagram.nodes[index].y + offset.height), for: diagram.nodes[index])
             diagram.nodes[index].x = point.x; diagram.nodes[index].y = point.y
         }
         save()
@@ -461,7 +488,7 @@ struct DiagramEditor: View {
         let dx = moved.x - diagram.groups[index].x, dy = moved.y - diagram.groups[index].y
         diagram.groups[index] = moved
         for i in diagram.nodes.indices where members.contains(diagram.nodes[i].id) {
-            let point = DiagramLayout.clamp(CGPoint(x: diagram.nodes[i].x + dx, y: diagram.nodes[i].y + dy))
+            let point = DiagramLayout.clamp(CGPoint(x: diagram.nodes[i].x + dx, y: diagram.nodes[i].y + dy), for: diagram.nodes[i])
             diagram.nodes[i].x = point.x; diagram.nodes[i].y = point.y
         }
         save()
@@ -579,7 +606,7 @@ struct DiagramEditor: View {
         if connectingFrom != nil { cancelConnecting(); return }
         if let id = line(at: point, hitPaths) { selectEdge(id); return }
         if clicks == 2 { openQuickAdd(at: point) }
-        else if !NSEvent.modifierFlags.contains(.shift) { clearSelection() }
+        else if !modifierFlags.contains(.shift) { clearSelection() }
     }
 
     /// Connecting by clicks, for when dragging is awkward (such as with tap to click): clicking a box's ● starts a
@@ -706,6 +733,21 @@ struct DiagramEditor: View {
         quickAdd = point
         DispatchQueue.main.async { showingQuickAdd = true }
     }
+
+    /// Boxes that hang off the edge of the canvas (an agent may place a tall note too near the top) can't be reached
+    /// or grabbed there, so they're moved just inside it.
+    func bringBoxesOntoCanvas() {
+        var changed = false
+        for index in diagram.nodes.indices {
+            let node = diagram.nodes[index]
+            let kept = DiagramLayout.clamp(CGPoint(x: node.x, y: node.y), for: node)
+            if kept.x != node.x || kept.y != node.y { diagram.nodes[index].x = kept.x; diagram.nodes[index].y = kept.y; changed = true }
+        }
+        if changed { save() }
+    }
+
+    /// The modifier keys of the click or drag being handled (the live keyboard state when there's no event).
+    var modifierFlags: NSEvent.ModifierFlags { NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags }
 
     func fitToContent() {
         if let bounds = DiagramLayout.contentBounds(diagram) { viewport.fit(bounds) }
@@ -993,6 +1035,8 @@ struct DiagramEditor: View {
         let chosen = selectedNodes.contains(node.id) ? selectedNodes : [node.id]
         Button("Copy") { selectedNodes = chosen; copySelection() }
         Button("Duplicate") { duplicate(chosen) }
+        Button("Bring to Front") { reorder(node.id, toFront: true) }
+        Button("Send to Back") { reorder(node.id, toFront: false) }
         Button("Put in a New Group") { addGroup(around: selectedNodes.contains(node.id) ? diagram.nodes.filter { selectedNodes.contains($0.id) } : [node], at: CGPoint(x: node.x, y: node.y)) }
         Divider()
         Button(node.entryID == nil ? "Delete" : "Remove from Map", role: .destructive) {
@@ -1089,7 +1133,7 @@ struct DiagramEditor: View {
             var copy = node
             copy.id = UUID()
             newID[node.id] = copy.id
-            let point = DiagramLayout.clamp(CGPoint(x: node.x + offset.width, y: node.y + offset.height))
+            let point = DiagramLayout.clamp(CGPoint(x: node.x + offset.width, y: node.y + offset.height), for: node)
             copy.x = DiagramLayout.snap(point.x); copy.y = DiagramLayout.snap(point.y)
             if let entryID = node.entryID, let original = store.entry(entryID) {
                 var link = original
@@ -1151,7 +1195,7 @@ struct DiagramEditor: View {
     func nudge(dx: Double, dy: Double) {
         if !selectedNodes.isEmpty {
             for index in diagram.nodes.indices where selectedNodes.contains(diagram.nodes[index].id) {
-                let point = DiagramLayout.clamp(CGPoint(x: diagram.nodes[index].x + dx, y: diagram.nodes[index].y + dy))
+                let point = DiagramLayout.clamp(CGPoint(x: diagram.nodes[index].x + dx, y: diagram.nodes[index].y + dy), for: diagram.nodes[index])
                 diagram.nodes[index].x = point.x; diagram.nodes[index].y = point.y
             }
             save()
@@ -1200,6 +1244,11 @@ struct DiagramEditor: View {
             case "-": viewport.zoomOut(); return true
             case "0": fitToContent(); return true
             case "a": selectedEdge = nil; selectedGroup = nil; selectedNodes = Set(diagram.nodes.map(\.id)); return true
+            case "g":
+                // ⌘G frames the selected boxes in a new group, as in draw.io.
+                guard !selectedNodes.isEmpty else { return false }
+                addGroup(around: diagram.nodes.filter { selectedNodes.contains($0.id) }, at: visibleCenter)
+                return true
             case "d":
                 guard !selectedNodes.isEmpty else { return false }
                 duplicate(selectedNodes)
@@ -1213,7 +1262,8 @@ struct DiagramEditor: View {
             default: return false
             }
         }
-        let step: Double = flags.contains(.shift) ? 50 : 10
+        // Arrows move the selection a grid step; Shift moves it further, ⌥ by a single point.
+        let step: Double = flags.contains(.option) ? 1 : (flags.contains(.shift) ? 50 : 10)
         let movable = !selectedNodes.isEmpty || selectedGroup != nil
         switch event.keyCode {
         case 51, 117: // Delete, forward delete

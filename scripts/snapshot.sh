@@ -7,5 +7,5 @@ OUT="${1:-$PWD/.build/snapshots}"
 mkdir -p .build/snapshot-main "$OUT"
 # Top-level code must live in a file named main.swift.
 cp scripts/snapshot.swift .build/snapshot-main/main.swift
-swiftc -module-cache-path "$CLANG_MODULE_CACHE_PATH" -o .build/context-snapshot $(ls Sources/Context/*.swift | grep -v ContextApp.swift) .build/snapshot-main/main.swift
+swiftc -module-cache-path "$CLANG_MODULE_CACHE_PATH" -o .build/context-snapshot $(ls Sources/Context/*.swift | grep -v -e ContextApp.swift -e /main.swift) .build/snapshot-main/main.swift
 .build/context-snapshot "$OUT"

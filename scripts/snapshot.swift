@@ -122,6 +122,8 @@ MainActor.assumeIsolated {
     try? FileManager.default.createDirectory(atPath: out, withIntermediateDirectories: true)
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("context-snapshot-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: root) }
+    // Settings such as AI agent access go to the throwaway folder too, never the real one.
+    setenv("CONTEXT_DATA_DIR", root.appendingPathComponent("settings").path, 1)
 
     let empty = Store(directory: root.appendingPathComponent("empty"))
     let size = CGSize(width: 1380, height: 900)
@@ -157,4 +159,12 @@ MainActor.assumeIsolated {
     snap(EntryEditor(entry: seeded.service).environmentObject(store), size: CGSize(width: 660, height: 720), to: "\(out)/22-link-editor.png")
     snap(ProjectEditor(project: seeded.ayuvam).environmentObject(store), size: CGSize(width: 540, height: 500), to: "\(out)/23-project-editor.png")
     snap(MenuBarPanel().environmentObject(store).environmentObject(backup), size: CGSize(width: 400, height: 460), to: "\(out)/24-menubar.png")
+    snap(AIPromptPanel(project: seeded.ayuvam, openSettings: {}).environmentObject(store).environment(\.pageTint, Theme.color("sage")),
+         size: CGSize(width: 380, height: 230), to: "\(out)/26-ai-off.png")
+    AgentAccess.shared.setEnabled(true)
+    RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+    snap(AIPromptPanel(project: seeded.ayuvam, openSettings: {}).environmentObject(store).environment(\.pageTint, Theme.color("sage")),
+         size: CGSize(width: 380, height: 560), to: "\(out)/26-ai-on.png")
+    snap(AgentAccessView().environmentObject(store), size: CGSize(width: 640, height: 640), to: "\(out)/25-agents.png")
+    AgentAccess.shared.setEnabled(false)
 }

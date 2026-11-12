@@ -40,6 +40,7 @@ Context keeps the answer on one page per project:
 - **Passwords in the Keychain**, never in Context's data. Revealing one needs Touch ID, and a copied password clears from the clipboard after 45 seconds.
 - **Optional app lock** with Touch ID or your Mac password, and auto-lock when you step away.
 - **Backup to iCloud Drive, Google Drive, Dropbox, or OneDrive** through their Mac apps. Context writes a dated copy after each change and keeps 30 days.
+- **AI agents (MCP).** Click ✨ AI in a project, copy the prompt, and paste it into Claude Code, Codex, or Cursor: the agent builds and edits your map. Off by default.
 
 <table>
 <tr><td><img src="docs/screenshots/10-map.png" alt="Map"></td><td><img src="docs/screenshots/11-map-linked.png" alt="A map box selected, showing its details and notes"></td></tr>
@@ -67,7 +68,7 @@ zsh scripts/build-app.sh --install   # builds, moves it to /Applications, and op
 
 ## Map
 
-- **Move around:** scroll with two fingers (or hold Space or ⌥ and drag), pinch (or ⌘-scroll) to zoom, and press ⌘0 to fit the whole map.
+- **Move around:** scroll with two fingers (or hold Space or ⌥ and drag), pinch or ⌘-scroll to zoom around the pointer, double-tap with two fingers to switch between 100% and the whole map, and press ⌘0 to fit it. Clicks and drags land exactly where you point at any zoom.
 - **Start a map:** every project has one. On an empty map, "Build from my links" lays out the links you've saved.
 - **Add anything with a double-click:** name a box, or paste a link ("github.com/acme/web", "vercel.com") and it's saved with its logo and placed where you clicked. You can also pick one of the project's links.
 - **Links:** the Links button opens every link in the project beside the map. Click one to open it, ＋ to put it on the map, or ⌖ to find its box. Removing a box from the map keeps the link saved.
@@ -75,15 +76,50 @@ zsh scripts/build-app.sh --install   # builds, moves it to /Applications, and op
 - **Details on one click:** the panel on the right shows a box's notes, URL, account, environment, and connections. Boxes with notes show a small ≡ marker.
 - **Groups:** Add → Group draws a labelled frame. Drag boxes in, drag the name tag to move the group with everything inside, and drag the corner to resize.
 - **Connect:** click a box's ● handle and then the box to connect to (Esc cancels), or drag the ● onto it. Click a line anywhere along it to label it, dash it, reverse it, or delete it. Lines can be elbow, curved, or straight (map menu, or a connection's details), and go around boxes that are in the way.
-- **Select several:** drag across empty space to select the boxes it covers (Shift adds to the selection), Shift-click, or ⌘A. Drag one to move them all; line them up, space them evenly, or group them from the panel. Dragged boxes snap into line with the others.
+- **Select and move several, like draw.io:** drag across empty space to select the boxes it covers, Shift- or ⌘-click to add or remove one, or ⌘A for all. Drag any of them to move them together, or use the arrow keys (⇧ for bigger steps, ⌥ for one point). Shift-drag keeps a move straight; ⌥-drag turns off snapping. Dragged boxes snap into line with the others. ⌘G groups the selection; right-click → Bring to Front / Send to Back changes which box is on top.
 - **Copy and paste:** ⌘C and ⌘V (also into another project's map), or ⌘D to duplicate. A copy of a box made from a link gets its own copy of the link, so changing one never changes the other. Saved passwords stay with the original.
-- **Keys:** Delete removes the selection, arrows nudge it (⇧ for bigger steps), Return renames, ⌘A selects all, ⌘C / ⌘V copy and paste, ⌘D duplicates, Esc deselects (or closes Links), ⌘Z / ⇧⌘Z undo and redo.
+- **Keys:** Delete removes the selection, arrows move it (⇧ further, ⌥ finely), Return renames, ⌘A selects all, ⌘C / ⌘V copy and paste, ⌘D duplicates, ⌘G groups, Esc deselects (or closes Links), ⌘Z / ⇧⌘Z undo and redo.
 
 ## Reminders
 
 Select a box on the map, and add reminders under **Reminders** in its details (the first time, click **Connect Apple Reminders** and allow access). A small bell on the box shows it has reminders, red when one is due. The **Reminders** button at the top of the project lists them all by box; click a box's name to jump to it.
 
 Your first reminder in a project creates a list with the project's name in Apple Reminders (or uses an existing list with that name; you can pick another list from the Reminders button). Each reminder links back to its box, so clicking the link in Apple Reminders opens the box in Context. Reminders that aren't on a box, such as ones made in Apple Reminders, are listed in the Links panel. Context doesn't keep its own copy: Apple Reminders is the only place your reminders live, so they sync through iCloud as usual.
+
+## AI agents (MCP)
+
+Context has a built-in [Model Context Protocol](https://modelcontextprotocol.io) server, so AI agents on your Mac can work on your maps alongside you. It's **off until you turn it on**.
+
+<p align="center"><img src="docs/screenshots/26-ai-on.png" alt="The ✨ AI panel: pick a task and copy a prompt for Claude Code, Codex, or Cursor" width="380"></p>
+
+**Easiest: copy a prompt.** Open a project and click **✨ AI** at the top. The first time, click **Turn On AI Access**. Pick a task (map this codebase, fill in what's missing, tidy and group the map, explain the map, or your own), click **Copy Prompt**, and paste it into Claude Code, Codex, Cursor, or any agent that can run commands on your Mac. The prompt tells the agent everything it needs, so no setup is required: it uses Context's command line,
+
+```sh
+/Applications/Context.app/Contents/MacOS/Context --call get_map '{"project": "Ayuvam"}'
+/Applications/Context.app/Contents/MacOS/Context --call list_tools
+```
+
+**Or connect Claude Code natively** (run once), so the tools show up in every session:
+
+```sh
+claude mcp add --scope user context -- /Applications/Context.app/Contents/MacOS/Context --mcp
+```
+
+**Other apps** (Cursor, Windsurf, Claude Desktop, …) take the same command as JSON:
+
+```json
+{ "mcpServers": { "context": { "command": "/Applications/Context.app/Contents/MacOS/Context", "args": ["--mcp"] } } }
+```
+
+Tools that take a URL can use `http://127.0.0.1:47321/mcp` with the access key from ⚙ → AI Agents as an `Authorization: Bearer` header.
+
+Agents can list projects; create, read, rename, arrange, and delete maps; add, edit, and remove boxes (a pasted address becomes a link with its logo); connect boxes and label the lines; group boxes; manage links; and add reminders to boxes. A whole diagram can be drawn in one call. Then try asking things like:
+
+- "Look at this repo and map how it's deployed in my Innerline project."
+- "Add Stripe, Resend, and Sentry to the Ayuvam map and connect them to the API."
+- "Group the database boxes as Data and tidy the map."
+
+Changes appear live on the map, and you can undo them with ⌘Z. **What agents can't do:** see saved passwords, reach Context from another computer or a web page, or do anything while Context is locked or access is off. `Context --mcp` reads its key from the data folder (readable only by your Mac account) and opens Context in the background if it isn't running. ⚙ → AI Agents shows what agents did and can make a new key.
 
 ## Keyboard shortcuts
 
@@ -102,13 +138,15 @@ Your first reminder in a project creates a list with the project's name in Apple
 ## Privacy and your data
 
 Context has no telemetry, no analytics, and no sync service of its own. Its only network use:
-- opening the links you click, and
-- fetching website icons once for links without a built-in logo. You can turn this off in ⚙.
+- opening the links you click,
+- fetching website icons once for links without a built-in logo (you can turn this off in ⚙), and
+- when you turn on AI agent access, a server that listens on 127.0.0.1 only, for programs on this Mac.
 
 ```text
 ~/Library/Application Support/Context/workspace.json           your data
 ~/Library/Application Support/Context/workspace.previous.json  the previous save
 ~/Library/Application Support/Context/backup-settings.json     where backups go
+~/Library/Application Support/Context/agent-access.json        AI agent access: on/off, port, and key
 ```
 
 These files are readable only by your Mac account but are not encrypted, so keep passwords in a link's Keychain credentials rather than in notes. The optional app lock keeps Context's windows, launcher, and menu bar panel closed until you unlock; it does not encrypt the files on disk.

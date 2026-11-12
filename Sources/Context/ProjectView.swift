@@ -9,6 +9,8 @@ struct ProjectView: View {
     let project: Project
     @State private var dropTargeted = false
     @State private var showingReminders = false
+    @State private var showingAI = false
+    @ObservedObject private var agents = AgentAccess.shared
 
     var tint: Color { Theme.color(project.color) }
 
@@ -34,6 +36,7 @@ struct ProjectView: View {
             .frame(maxWidth: 360, alignment: .leading)
             Spacer(minLength: 16)
             remindersButton
+            aiButton
             Spacer(minLength: 16)
             IconButton(icon: "slider.horizontal.3", help: "Project settings", size: 30) { present(.project(project)) }
         }
@@ -75,6 +78,27 @@ struct ProjectView: View {
     }
 
     /// All of the project's reminders at a glance: a count (red when something is due), and the list by box.
+    /// Copy a ready-made prompt so an AI agent can work on this project (and turn AI access on, if it's off).
+    var aiButton: some View {
+        Button { showingAI = true } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles").font(.system(size: 12, weight: .semibold))
+                Text("AI").font(.system(size: 13, weight: .medium))
+                if agents.settings.enabled { Circle().fill(Theme.success).frame(width: 6, height: 6) }
+            }
+            .foregroundStyle(Theme.ink2)
+            .padding(.horizontal, 13).padding(.vertical, 7)
+            .background(Theme.raised.opacity(0.7), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Let Claude Code, Codex, Cursor, or another AI agent work on this project's map")
+        .popover(isPresented: $showingAI, arrowEdge: .bottom) {
+            AIPromptPanel(project: project, openSettings: { showingAI = false; DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { present(.agents) } })
+                .environmentObject(store).environment(\.pageTint, tint)
+        }
+    }
+
     var remindersButton: some View {
         let open = reminders.items(for: project).filter { !$0.isCompleted }.count
         return Button { showingReminders = true } label: {

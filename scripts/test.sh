@@ -9,5 +9,6 @@ swiftc -module-cache-path "$CLANG_MODULE_CACHE_PATH" \
   Sources/Context/BrandData.swift Sources/Context/BrandCatalog.swift \
   Sources/Context/MarkdownParser.swift Sources/Context/DiagramLayout.swift \
   Sources/Context/LauncherSearch.swift Sources/Context/Backup.swift \
+  Sources/Context/AgentProtocol.swift Sources/Context/AgentTools.swift Sources/Context/AgentBridge.swift Sources/Context/AgentPrompt.swift \
   Tests/ContextTests/WorkspaceTests.swift -o .build/context-tests
 .build/context-tests

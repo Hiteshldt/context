@@ -174,6 +174,24 @@ final class WorkspaceTests {
         XCTAssertFalse(dueToday.isOverdue(now: now))   // A date-only reminder isn't overdue until the day has passed.
     }
 
+    func testBoxesStayOnTheCanvas() throws {
+        // A tall sticky note centred near the top would hang off the canvas, where it can't be reached or grabbed.
+        let note = DiagramNode(label: String(repeating: "A long line of notes about how it all works. ", count: 12), x: 1950, y: 150, kind: .note)
+        let height = DiagramLayout.size(of: note).height
+        XCTAssertTrue(height > 300)
+        let kept = DiagramLayout.clamp(CGPoint(x: note.x, y: note.y), for: note)
+        XCTAssertTrue(kept.y - height / 2 >= 0)
+        XCTAssertEqual(kept.x, 1950)
+        let corner = DiagramLayout.clamp(CGPoint(x: 99_999, y: 99_999), for: DiagramNode(label: "Box", x: 0, y: 0))
+        XCTAssertTrue(corner.x + 98 <= DiagramLayout.canvas.width && corner.y + 31 <= DiagramLayout.canvas.height)
+        // Agents can't put boxes there either.
+        var ws = Workspace()
+        _ = try AgentTools.run("create_project", ["name": "P"], in: &ws)
+        _ = try AgentTools.run("add_boxes", ["project": "P", "boxes": [["label": note.label, "kind": "note", "x": 1950, "y": 150]]], in: &ws)
+        let placed = ws.diagrams[0].nodes[0]
+        XCTAssertTrue(DiagramLayout.rect(of: placed).minY >= 0)
+    }
+
     func testMapNotesGrowAndFitTheScreen() {
         let short = DiagramNode(label: "Ask Riya", x: 300, y: 300, kind: .note)
         let long = DiagramNode(label: String(repeating: "A long note about the CDN contract. ", count: 8), x: 600, y: 300, kind: .note)
@@ -186,6 +204,186 @@ final class WorkspaceTests {
         let bounds = DiagramLayout.contentBounds(map)!
         XCTAssertEqual(bounds.minX, DiagramLayout.rect(of: short).minX)
         XCTAssertEqual(bounds.maxY, 1160)
+    }
+
+    func testMCPRequestsParseAndAreGuarded() throws {
+        let body = #"{"jsonrpc":"2.0","id":1,"method":"ping"}"#
+        let raw = "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:47321\r\nAuthorization: Bearer secret\r\nContent-Length: \(body.utf8.count)\r\n\r\n\(body)"
+        guard case .complete(let request) = HTTPRequest.parse(Data(raw.utf8)) else { fatalError("Request should parse") }
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(request.path, "/mcp")
+        XCTAssertEqual(String(decoding: request.body, as: UTF8.self), body)
+        XCTAssertEqual(HTTPRequest.parse(Data(raw.utf8).dropLast(5)), .incomplete)
+        guard case .complete(let chunked) = HTTPRequest.parse(Data("POST /mcp HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n".utf8)) else {
+            fatalError("Chunked request should parse")
+        }
+        XCTAssertEqual(String(decoding: chunked.body, as: UTF8.self), "hello world")
+        // Only requests for /mcp, addressed to this Mac, with the key, and not from a web page.
+        XCTAssertNil(refuse(request, port: 47321, token: "secret"))
+        XCTAssertEqual(refuse(request, port: 47321, token: "other")?.status, 401)
+        var fromPage = request; fromPage.headers["origin"] = "https://evil.example"
+        XCTAssertEqual(refuse(fromPage, port: 47321, token: "secret")?.status, 403)
+        var rebound = request; rebound.headers["host"] = "evil.example:47321"
+        XCTAssertEqual(refuse(rebound, port: 47321, token: "secret")?.status, 403)
+        var elsewhere = request; elsewhere.path = "/admin"
+        XCTAssertEqual(refuse(elsewhere, port: 47321, token: "secret")?.status, 404)
+        XCTAssertTrue(constantTimeEqual("abc", "abc"))
+        XCTAssertFalse(constantTimeEqual("abc", "abd"))
+        XCTAssertFalse(constantTimeEqual("abc", "abcd"))
+    }
+
+    func testMCPDispatcherSpeaksTheProtocol() throws {
+        let dispatcher = MCPDispatcher(serverName: "context", serverVersion: "test", instructions: "Hi", tools: AgentTools.specs) { name, _ in
+            name == "delete_map" ? .failure("Nope") : .success(["called": name])
+        }
+        func reply(_ json: String) -> [String: Any]? {
+            dispatcher.handle(Data(json.utf8)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        }
+        let initialize = try XCTUnwrap(reply(#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"claude-code"}}}"#))
+        let result = try XCTUnwrap(initialize["result"] as? [String: Any])
+        XCTAssertEqual(result["protocolVersion"] as? String, "2025-03-26")
+        XCTAssertEqual((result["serverInfo"] as? [String: Any])?["name"] as? String, "context")
+        XCTAssertNil(reply(#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#))
+        let tools = try XCTUnwrap((reply(#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#)?["result"] as? [String: Any])?["tools"] as? [[String: Any]])
+        XCTAssertEqual(tools.count, AgentTools.specs.count)
+        XCTAssertTrue(tools.allSatisfy { ($0["inputSchema"] as? [String: Any])?["type"] as? String == "object" })
+        let called = try XCTUnwrap(reply(#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_projects","arguments":{}}}"#)?["result"] as? [String: Any])
+        XCTAssertEqual(called["isError"] as? Bool, false)
+        XCTAssertTrue(((called["content"] as? [[String: Any]])?.first?["text"] as? String)?.contains("list_projects") == true)
+        let failed = try XCTUnwrap(reply(#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"delete_map","arguments":{}}}"#)?["result"] as? [String: Any])
+        XCTAssertEqual(failed["isError"] as? Bool, true)
+        XCTAssertEqual((reply(#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"format_disk"}}"#)?["error"] as? [String: Any])?["code"] as? Int, -32602)
+        XCTAssertEqual((reply(#"{"jsonrpc":"2.0","id":6,"method":"sampling/createMessage"}"#)?["error"] as? [String: Any])?["code"] as? Int, -32601)
+        let batch = try XCTUnwrap(dispatcher.handle(Data(#"[{"jsonrpc":"2.0","id":7,"method":"ping"},{"jsonrpc":"2.0","method":"notifications/initialized"}]"#.utf8)))
+        XCTAssertEqual((try JSONSerialization.jsonObject(with: batch) as? [Any])?.count, 1)
+    }
+
+    func testAgentsBuildAndEditMaps() throws {
+        var ws = Workspace()
+        let created = try XCTUnwrap(try AgentTools.run("create_project", ["name": "Innerline", "color": "green"], in: &ws).value as? [String: Any])
+        let mapID = try XCTUnwrap(created["map_id"] as? String)
+        XCTAssertEqual(ws.projects.first?.color, "sage")
+        // A whole diagram in one call: boxes (one from a pasted address), connections by ref or label, and automatic layout.
+        let added = try AgentTools.run("add_boxes", ["project": "innerline", "arrange": true, "boxes": [
+            ["label": "Users", "kind": "person", "ref": "u"],
+            ["label": "Web app", "kind": "frontend", "ref": "web"],
+            ["url": "https://vercel.com/dashboard", "ref": "host"],
+            ["label": "Database", "kind": "db", "notes": "Neon Postgres"],
+        ], "connections": [["from": "u", "to": "web", "label": "use"], ["from": "web", "to": "Database"], ["from": "host", "to": "web", "label": "serves"]]], in: &ws)
+        XCTAssertTrue(added.summary.contains("4 boxes"))
+        let map = ws.diagrams[0]
+        XCTAssertEqual(map.nodes.count, 4)
+        XCTAssertEqual(map.edges.count, 3)
+        XCTAssertEqual(ws.entries.count, 1)
+        XCTAssertEqual(ws.entries[0].kind, .service)
+        XCTAssertEqual(map.nodes.first { $0.label == "Database" }?.kind, .database)
+        func node(_ label: String) -> DiagramNode { ws.diagrams[0].nodes.first { $0.label == label }! }
+        XCTAssertTrue(node("Users").x < node("Web app").x)   // arranged left to right along the arrows
+        let described = try XCTUnwrap(try AgentTools.run("get_map", ["map_id": mapID], in: &ws).value as? [String: Any])
+        XCTAssertEqual((described["connections"] as? [[String: Any]])?.contains { $0["from_label"] as? String == "Users" && $0["label"] as? String == "use" }, true)
+        // Connecting an already-connected pair updates that line instead of adding another.
+        _ = try AgentTools.run("connect", ["map_id": mapID, "connections": [["from": "Database", "to": "Web app", "label": "answers", "dashed": true]]], in: &ws)
+        XCTAssertEqual(ws.diagrams[0].edges.count, 3)
+        XCTAssertTrue(ws.diagrams[0].edges.contains { $0.from == node("Database").id && $0.label == "answers" && $0.dashed })
+        // A box showing a link renames the link itself.
+        _ = try AgentTools.run("update_boxes", ["map_id": mapID, "boxes": [["box": "Vercel", "label": "Vercel (prod)", "notes": "Team plan", "color": "blue"]]], in: &ws)
+        XCTAssertEqual(ws.entries[0].title, "Vercel (prod)")
+        XCTAssertEqual(ws.entries[0].body, "Team plan")
+        let grouped = try XCTUnwrap(try AgentTools.run("add_group", ["map_id": mapID, "title": "Backend", "boxes": ["Database", "Vercel (prod)"]], in: &ws).value as? [String: Any])
+        let inside = try XCTUnwrap(grouped["boxes_inside"] as? [String])
+        XCTAssertTrue(inside.contains("Database") && inside.contains("Vercel (prod)"))
+        XCTAssertEqual(Set(DiagramLayout.members(of: ws.diagrams[0].groups[0], in: ws.diagrams[0]).map { node in
+            ws.diagrams[0].nodes.first { $0.id == node }.map { $0.entryID.flatMap { id in ws.entries.first { $0.id == id }?.title } ?? $0.label } ?? ""
+        }), Set(inside))
+        // Removing a box removes its lines; the link stays saved.
+        _ = try AgentTools.run("delete_boxes", ["map_id": mapID, "boxes": ["Vercel (prod)"]], in: &ws)
+        XCTAssertEqual(ws.diagrams[0].nodes.count, 3)
+        XCTAssertFalse(ws.diagrams[0].edges.contains { edge in !ws.diagrams[0].nodes.contains { $0.id == edge.from } })
+        XCTAssertEqual(ws.entries.count, 1)
+        // Links: kind guessed from the address, placed on the map, and passwords never listed.
+        let link = try XCTUnwrap(try AgentTools.run("add_link", ["project": "Innerline", "url": "github.com/acme/innerline", "map_id": mapID,
+                                                                  "account": "dev@example.com"], in: &ws).value as? [String: Any])
+        XCTAssertEqual(link["kind"] as? String, "repository")
+        XCTAssertNotNil(link["box_id"])
+        ws.entries[0].credentials = [CredentialRef(label: "API key")]
+        let listed = String(describing: try AgentTools.run("list_links", ["project": "Innerline"], in: &ws).value)
+        XCTAssertTrue(listed.contains("saved_passwords"))
+        XCTAssertFalse(listed.contains("API key"))
+        // Mistakes come back as messages the agent can act on, and the result always saves cleanly.
+        XCTAssertThrowsError(try AgentTools.run("add_boxes", ["map_id": mapID, "boxes": [["label": "X", "kind": "spaceship"]]], in: &ws))
+        XCTAssertThrowsError(try AgentTools.run("get_map", ["project": "Nope"], in: &ws))
+        XCTAssertThrowsError(try AgentTools.run("connect", ["map_id": mapID, "connections": [["from": "Users", "to": "Ghost"]]], in: &ws))
+        let disk = WorkspaceDisk(directory: try temporaryDirectory())
+        try disk.save(ws)
+        XCTAssertEqual(try disk.load(), ws)
+    }
+
+    func testAgentsConnectOverHTTP() throws {
+        let project = Project(name: "Demo")
+        var workspace = Workspace()
+        workspace.projects = [project]
+        workspace.diagrams = [Diagram(projectID: project.id, title: "Overview")]
+        let lock = NSLock()
+        let token = AgentSettings.newToken()
+        let port = UInt16.random(in: 49_200...49_900)
+        let dispatcher = MCPDispatcher(serverName: "context", serverVersion: "test", instructions: "", tools: AgentTools.specs) { name, arguments in
+            lock.lock(); defer { lock.unlock() }
+            do { return .success(try AgentTools.run(name, arguments, in: &workspace).value) }
+            catch let failure as AgentTools.Failure { return .failure(failure.message) }
+            catch { return .failure("\(error)") }
+        }
+        let server = AgentHTTPServer { request in
+            if let refusal = refuse(request, port: port, token: token) { return refusal }
+            guard let reply = dispatcher.handle(request.body) else { return HTTPResponse(status: 202) }
+            return HTTPResponse(status: 200, headers: ["Content-Type": "application/json"], body: reply)
+        }
+        let ready = DispatchSemaphore(value: 0)
+        var failure: String?
+        server.start(port: port) { failure = $0; ready.signal() }
+        ready.wait()
+        defer { server.stop() }
+        XCTAssertNil(failure)
+        // The bridge agents launch talks to the app exactly like this.
+        let settings = AgentSettings(enabled: true, port: port, token: token)
+        guard case .reply(let hello, _) = AgentBridge.post(#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test"}}}"#,
+                                                           settings: settings, session: nil) else { fatalError("initialize should succeed") }
+        XCTAssertTrue(hello.contains(#""name":"context""#))
+        let call = #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"add_boxes","arguments":{"project":"Demo","boxes":[{"label":"API"},{"label":"DB","kind":"database"}],"connections":[{"from":"API","to":"DB"}]}}}"#
+        guard case .reply(let added, _) = AgentBridge.post(call, settings: settings, session: nil) else { fatalError("tools/call should succeed") }
+        XCTAssertTrue(added.contains(#""isError":false"#))
+        lock.lock()
+        XCTAssertEqual(workspace.diagrams[0].nodes.count, 2)
+        XCTAssertEqual(workspace.diagrams[0].edges.count, 1)
+        lock.unlock()
+        guard case .accepted = AgentBridge.post(#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#, settings: settings, session: nil) else {
+            fatalError("A notification gets 202 Accepted")
+        }
+        var wrongKey = settings
+        wrongKey.token = "guess"
+        guard case .refused(let reason) = AgentBridge.post(call, settings: wrongKey, session: nil) else { fatalError("A wrong key is refused") }
+        XCTAssertTrue(reason.contains("access key"))
+        // With access off, the bridge answers each request with an error the agent shows, and stays quiet for notifications.
+        XCTAssertTrue(AgentBridge.errorReply(for: call, "Off")?.contains(#""id":2"#) == true)
+        XCTAssertNil(AgentBridge.errorReply(for: #"{"jsonrpc":"2.0","method":"notifications/initialized"}"#, "Off"))
+    }
+
+    func testCopiedPromptsTellAgentsHowToReachContext() {
+        let project = Project(name: "Innerline ticket")
+        var ws = Workspace()
+        ws.projects = [project]
+        let map = Diagram(projectID: project.id, title: "Overview")
+        ws.diagrams = [map]
+        ws.entries = [Entry(projectID: project.id, kind: .service, title: "Neon", url: "https://console.neon.tech")]
+        let exe = "/Applications/Context.app/Contents/MacOS/Context"
+        let prompt = AgentPrompt.make(.mapCode, project: project, in: ws, executable: exe)
+        XCTAssertTrue(prompt.contains(AgentPrompt.Task.mapCode.instruction))
+        XCTAssertTrue(prompt.contains("\"\(exe)\" --call get_map '{\"project\": \"\(project.id.uuidString)\"}'"))
+        XCTAssertTrue(prompt.contains("map_id \(map.id.uuidString)"))
+        XCTAssertTrue(prompt.contains("Saved links: 1"))
+        XCTAssertTrue(prompt.contains("MCP server"))
+        let custom = AgentPrompt.make(.custom, custom: "  Add Stripe and connect it to the API.  ", project: project, in: ws, executable: exe)
+        XCTAssertTrue(custom.contains("Task: Add Stripe and connect it to the API.\n"))
+        XCTAssertTrue(AgentPrompt.Task.allCases.filter { $0 != .custom }.allSatisfy { !$0.instruction.isEmpty && !$0.detail.isEmpty })
     }
 
     func testBrandMatching() {
@@ -701,6 +899,12 @@ struct TestRunner {
         let tests = WorkspaceTests()
         defer { tests.finish() }
         let all: [(String, () throws -> Void)] = [
+            ("testBoxesStayOnTheCanvas", { try tests.testBoxesStayOnTheCanvas() }),
+            ("testCopiedPromptsTellAgentsHowToReachContext", { tests.testCopiedPromptsTellAgentsHowToReachContext() }),
+            ("testMCPRequestsParseAndAreGuarded", { try tests.testMCPRequestsParseAndAreGuarded() }),
+            ("testMCPDispatcherSpeaksTheProtocol", { try tests.testMCPDispatcherSpeaksTheProtocol() }),
+            ("testAgentsBuildAndEditMaps", { try tests.testAgentsBuildAndEditMaps() }),
+            ("testAgentsConnectOverHTTP", { try tests.testAgentsConnectOverHTTP() }),
             ("testWorkspaceRoundTripAndPreviousVersionBackup", { try tests.testWorkspaceRoundTripAndPreviousVersionBackup() }),
             ("testCorruptDataIsNotSilentlyReplaced", { try tests.testCorruptDataIsNotSilentlyReplaced() }),
             ("testInvalidReferencesAndVersionsRejected", { try tests.testInvalidReferencesAndVersionsRejected() }),

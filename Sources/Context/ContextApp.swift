@@ -39,7 +39,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 }
 
-@main
 struct ContextApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @StateObject private var store: Store
@@ -57,6 +56,7 @@ struct ContextApp: App {
         AppDelegate.onTerminate = { [weak backup] in MainActor.assumeIsolated { backup?.flush() } }
         _store = StateObject(wrappedValue: store)
         _backup = StateObject(wrappedValue: backup)
+        AgentAccess.shared.attach(store)
         GlobalHotKey.shared.action = {
             MainWindow.show()
             NotificationCenter.default.post(name: .contextShowLauncher, object: nil)

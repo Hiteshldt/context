@@ -75,6 +75,13 @@ enum DiagramLayout {
         CGPoint(x: min(max(110, point.x), canvas.width - 110), y: min(max(50, point.y), canvas.height - 70))
     }
 
+    /// Keeps a whole box on the canvas, tall sticky notes included: `point` is where its centre should go.
+    static func clamp(_ point: CGPoint, for node: DiagramNode) -> CGPoint {
+        let size = size(of: node), margin = 12.0
+        return CGPoint(x: min(max(size.width / 2 + margin, point.x), canvas.width - size.width / 2 - margin),
+                       y: min(max(size.height / 2 + margin, point.y), canvas.height - size.height / 2 - margin))
+    }
+
     // MARK: Connections
 
     enum Side: Equatable {

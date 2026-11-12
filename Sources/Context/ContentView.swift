@@ -137,7 +137,7 @@ struct ContentView: View {
         switch item {
         case .project(let p): return Theme.color(p.color)
         case .entry(let e): return store.project(e.projectID).map { Theme.color($0.color) } ?? tint
-        case .backup: return tint
+        case .backup, .agents: return tint
         }
     }
 
@@ -213,6 +213,7 @@ struct ContentView: View {
         case .project(let project): ProjectEditor(project: project, created: { self.route = .project($0) })
         case .entry(let entry): EntryEditor(entry: entry)
         case .backup: BackupView()
+        case .agents: AgentAccessView()
         }
     }
 }
@@ -302,6 +303,7 @@ struct SidebarFooter: View {
     @ObservedObject private var icons = SiteIconStore.shared
     @ObservedObject private var lock = AppLock.shared
     @ObservedObject private var reminders = RemindersService.shared
+    @ObservedObject private var agents = AgentAccess.shared
     @AppStorage("globalShortcut") private var globalShortcut = true
     @AppStorage(AppAppearance.key) private var appearance = AppAppearance.system.rawValue
     @Environment(\.colorScheme) private var colorScheme
@@ -338,6 +340,9 @@ struct SidebarFooter: View {
                 Divider()
                 Button("Backup & Restore…") { present(.backup) }
                 Button("Show Local Data in Finder") { NSWorkspace.shared.open(store.disk.directory) }
+                Divider()
+                Toggle("AI Agent Access (MCP)", isOn: Binding(get: { agents.settings.enabled }, set: { agents.setEnabled($0) }))
+                Button("AI Agents…") { present(.agents) }
                 Divider()
                 Toggle("Download Website Icons", isOn: Binding(get: { icons.enabled }, set: { icons.enabled = $0 }))
                 Toggle("Global Shortcut ⌃⌥Space", isOn: $globalShortcut)
